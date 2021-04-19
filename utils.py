@@ -1,4 +1,5 @@
 import json
+import numpy as np
 
 """
 To-Do:
@@ -109,6 +110,43 @@ def calculate_profit(input_array, trading_fee):
             mode = 'buy'
     
     return specific_profit, output_array
+
+def rolling_window(input_array, window_size):
+    """
+    Description:
+        This function takes numpy array in the shape: (timesteps, features) and rolls it with a rolling window (stepsize=1).
+    Arguments:
+        -input_array[np.array]:         array in the shape: (timesteps, features) that gets rolled, this array should not contain the labels!
+        -window_size[int]:              How many timesteps a window should contain
+    Return:
+        - windows[np.array]:            The rolled array in the shape: (windows_amount, timesteps, features)
+    """
+    #save the shape
+    shape = input_array.shape
+    #save the length 
+    length = shape[0]
+
+    #flatten the array
+    array_flat = input_array.flatten()
+
+    #amount of features
+    features_amount = shape[1]
+    #amount of elements in one window
+    window_elements = window_size*features_amount
+    #amount of elements to skip in next window
+    elements_skip = features_amount
+    #amount of windows to generate
+    windows_amount = length-window_size+1
+
+    #define the indexer
+    indexer = np.arange(window_elements)[None, :] + elements_skip*np.arange(windows_amount)[:, None]
+
+    #get the rolling windows
+    windows = array_flat[indexer]
+    #resize to correct dimensions
+    windows = windows.reshape(windows_amount, window_size, features_amount)
+
+    return windows
 
 if __name__ == "__main__":
     pass

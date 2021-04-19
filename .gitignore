@@ -1,8 +1,10 @@
-.vscode
+# ignore all . folders but include . files
+.*/
+
 __pycache__
-.mypy_cache
 config.json
 /databases/
+/experiments/
 
 #testfiles
 t.py
