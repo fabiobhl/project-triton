@@ -535,7 +535,7 @@ if __name__ == "__main__":
     MHP_space = {
         "hidden_size": [10, 100],
         "num_layers": [2, 5],
-        "lr": [0.01, 0.005],
+        "lr": [0.01],
         "epochs": [30]
     }
 
@@ -554,11 +554,11 @@ if __name__ == "__main__":
     exp = Experiment(path="./experiments",
                      MHP_space=MHP_space,
                      DHP_space=DHP_space,
-                     train_database_path="./databases/dbbtc",
-                     performanceanalytics_database_path="./databases/testdbbtc",
+                     train_database_path="./databases/dbeth",
+                     performanceanalytics_database_path="./databases/testeth",
                      network=Network,
                      device=None,
-                     identifier="testbtc",
+                     identifier="testeth",
                      torch_seed=None,
                      checkpointing=True)
     

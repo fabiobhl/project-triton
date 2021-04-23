@@ -217,8 +217,10 @@ class DataBase():
         enddate = date_span[1].strftime("%d %b, %Y")
 
         #download the data and safe it in a dataframe
+        print("Downloading...")
         raw_data = client.get_historical_klines(symbol=symbol, interval=candlestick_interval, start_str=startdate, end_str=enddate)
         data = pd.DataFrame(raw_data)
+        print("Finished downloading")
 
         #clean the dataframe
         data = data.astype(float)
@@ -345,6 +347,47 @@ class TrainDataBase(DataBase):
 
             yield torch.tensor(data, device=self.device), torch.tensor(labels, dtype=torch.long, device=self.device)
 
+    @staticmethod
+    def _raw_data_prep(data, derive, scaling_method):
+        
+        def derive_data(data):
+            """
+            Method for deriving the data: from absolute values to relative values
+            """
+
+            pct = ["open", "high", "low", "close", "volume_nvi", "volume_vwap", "volatility_atr", "volatility_bbm", "volatility_bbh", "volatility_bbl", "volatility_bbw", "volatility_kcc", "volatility_kch", "volatility_kcl", "volatility_kcw", "volatility_dcl", "volatility_dch", "volatility_dcm", "volatility_dcw", "trend_sma_fast", "trend_sma_slow", "trend_ema_fast", "trend_ema_slow", "trend_mass_index", "trend_ichimoku_conv", "trend_ichimoku_base", "trend_ichimoku_a", "trend_ichimoku_b", "trend_visual_ichimoku_a", "trend_visual_ichimoku_b", "trend_psar_up", "trend_psar_down", "momentum_uo", "momentum_kama"]
+            diff = ["volume", "volume_adi", "volume_obv", "volume_mfi", "volatility_ui", "trend_adx", "momentum_rsi", "momentum_wr", "others_cr"]
+            none = ["volume_cmf", "volume_fi", "volume_em", "volume_sma_em", "volume_vpt", "volatility_bbhi", "volatility_bbli", "volatility_bbp", "volatility_kcp", "volatility_kchi", "volatility_kcli", "volatility_dcp", "trend_macd", "trend_macd_signal", "trend_macd_diff", "trend_adx_pos", "trend_adx_neg", "trend_vortex_ind_pos", "trend_vortex_ind_neg", "trend_vortex_ind_diff", "trend_trix", "trend_cci", "trend_dpo", "trend_kst", "trend_kst_sig", "trend_kst_diff", "trend_aroon_up", "trend_aroon_down", "trend_aroon_ind", "trend_psar_up_indicator", "trend_psar_down_indicator", "trend_stc", "momentum_stoch_rsi", "momentum_stoch_rsi_k", "momentum_stoch_rsi_d", "momentum_tsi", "momentum_stoch", "momentum_stoch_signal", "momentum_ao", "momentum_roc", "momentum_ppo", "momentum_ppo_signal", "momentum_ppo_hist", "others_dr", "others_dlr"]
+
+            #extract the chosen features
+            pct_features = [x for x in pct if x in data.columns]
+            diff_features = [x for x in diff if x in data.columns]
+
+            data[pct_features] = data[pct_features].pct_change()
+            data[diff_features] = data[diff_features].diff()
+
+            return data
+        
+        #derive the data
+        if derive:
+            data = derive_data(data)
+            data = data.iloc[1:,:]
+        
+        #convert data to numpy array
+        data = data.to_numpy()
+
+        #scale
+        if scaling_method == "global":
+            scaler = preprocessing.MaxAbsScaler(copy=False)
+            scaler.fit_transform(data)
+
+            #safe the scaler params
+            scaler_params = scaler.get_params()
+        else:
+            raise Exception("Your chosen scaling method does not exist")
+
+        return data, scaler_params
+
     def _prepare_data(self):
         """
         Description:
@@ -360,22 +403,11 @@ class TrainDataBase(DataBase):
         #select the features
         data = self[self.DHP["candlestick_interval"], self.DHP["features"]]
 
-        #derive the data
-        if self.DHP["derived"]:
-            data = self._derive(data)
-            data = data.iloc[1:,:]
-        
-        #convert data to numpy array
-        data = data.to_numpy()
+        #data operations that can be made on the whole dataset
+        data, scaler_params = self._raw_data_prep(data=data, derive=self.DHP["derived"], scaling_method=self.DHP["scaling_method"])
 
-        #scale
-        self.scaler_params = None
-        if self.DHP["scaling_method"] == "global":
-            scaler = preprocessing.MaxAbsScaler(copy=False)
-            scaler.fit_transform(data)
-
-            #safe the scaler params
-            self.scaler_params = scaler.get_params()
+        #save the scaler parameters
+        self.scaler_params = scaler_params
 
         #roll the data (rolling window)
         windows = rolling_window(data, self.DHP["window_size"])
@@ -404,29 +436,16 @@ class TrainDataBase(DataBase):
         np.save(f"{self.path}/{self.id}/test_data",test_data)
         np.save(f"{self.path}/{self.id}/train_labels",train_labels)
         np.save(f"{self.path}/{self.id}/test_labels",test_labels)
-    
-    def _derive(self, data):
-        """
-        Method for deriving the data: from absolute values to relative values
-        """
-
-        pct = ["open", "high", "low", "close", "volume_nvi", "volume_vwap", "volatility_atr", "volatility_bbm", "volatility_bbh", "volatility_bbl", "volatility_bbw", "volatility_kcc", "volatility_kch", "volatility_kcl", "volatility_kcw", "volatility_dcl", "volatility_dch", "volatility_dcm", "volatility_dcw", "trend_sma_fast", "trend_sma_slow", "trend_ema_fast", "trend_ema_slow", "trend_mass_index", "trend_ichimoku_conv", "trend_ichimoku_base", "trend_ichimoku_a", "trend_ichimoku_b", "trend_visual_ichimoku_a", "trend_visual_ichimoku_b", "trend_psar_up", "trend_psar_down", "momentum_uo", "momentum_kama"]
-        diff = ["volume", "volume_adi", "volume_obv", "volume_mfi", "volatility_ui", "trend_adx", "momentum_rsi", "momentum_wr", "others_cr"]
-        none = ["volume_cmf", "volume_fi", "volume_em", "volume_sma_em", "volume_vpt", "volatility_bbhi", "volatility_bbli", "volatility_bbp", "volatility_kcp", "volatility_kchi", "volatility_kcli", "volatility_dcp", "trend_macd", "trend_macd_signal", "trend_macd_diff", "trend_adx_pos", "trend_adx_neg", "trend_vortex_ind_pos", "trend_vortex_ind_neg", "trend_vortex_ind_diff", "trend_trix", "trend_cci", "trend_dpo", "trend_kst", "trend_kst_sig", "trend_kst_diff", "trend_aroon_up", "trend_aroon_down", "trend_aroon_ind", "trend_psar_up_indicator", "trend_psar_down_indicator", "trend_stc", "momentum_stoch_rsi", "momentum_stoch_rsi_k", "momentum_stoch_rsi_d", "momentum_tsi", "momentum_stoch", "momentum_stoch_signal", "momentum_ao", "momentum_roc", "momentum_ppo", "momentum_ppo_signal", "momentum_ppo_hist", "others_dr", "others_dlr"]
-
-        #extract the chosen features
-        pct_features = [x for x in pct if x in data.columns]
-        diff_features = [x for x in diff if x in data.columns]
-
-        data[pct_features] = data[pct_features].pct_change()
-        data[diff_features] = data[diff_features].diff()
-
-        return data
 
     def _cleanup(self):
         """
-        This method gets called when the TrainDataBase goes out of scoope and deletes the temporary folder
+        This method gets called when the TrainDataBase goes out of scope and deletes the temporary folder
         """
+        delattr(self, "train_data")
+        delattr(self, "train_labels")
+        delattr(self, "test_data")
+        delattr(self, "test_labels")
+
         shutil.rmtree(f"{self.path}/{self.id}")
 
     @classmethod
@@ -494,5 +513,240 @@ class TrainDataBase(DataBase):
                 
                 plt.waitforbuttonpress()
 
+class LiveDataBase():
+
+    def _download(self, candlestick_interval, limit):
+        """
+        Description:
+            Method for downloading a certain amount of timesteps of candlestick data.
+
+        Arguments:
+            candlestick_interval[string]:   The candlestick_interval you want to download
+                                            (in accordance to the Binance API)
+            limit[integer]:                 The amount of timesteps you want to download
+
+        Return:
+            data[pd.DataFrame]:             The data in a pandas DataFrame with cleaned columns
+        """
+        
+        #download raw data
+        if self.market_endpoint == "futures":
+            raw_data = self.client.futures_klines(symbol=self.symbol, interval=candlestick_interval, limit=limit)
+        elif self.market_endpoint == "spot":
+            raw_data = self.client.get_klines(symbol=self.symbol, interval=candlestick_interval, limit=limit)
+        else:
+            raise Exception("Please choose a valid market_endpoint in the config file. You can choose from: [futures, spot]")
+        
+        #create df
+        data = pd.DataFrame(raw_data)
+
+        #clean the dataframe
+        data = data.astype(float)
+        data.drop(data.columns[[7,8,9,10,11]], axis=1, inplace=True)
+        data.rename(columns = {0:'open_time', 1:'open', 2:'high', 3:'low', 4:'close', 5:'volume', 6:'close_time'}, inplace=True)
+
+        #set the correct times
+        data['close_time'] += 1
+        data['close_time'] = pd.to_datetime(data['close_time'], unit='ms')
+        data['open_time'] = pd.to_datetime(data['open_time'], unit='ms')
+
+        #check for nan values
+        if data.isna().values.any():
+            raise Exception("Nan values in data, please discard this object and try again")
+
+        return data
+
+    def __init__(self, symbol, config, candlestick_interval):
+        """
+        Description:
+            Constructor for LDB class.
+        Arguments:
+            symbol[string]:                 The symbol this LDB should work with
+            config[dict]:                   The imported config file as a dictionary
+            candlestick_interval[dict]:     The wished candlestick_intervals and the info for every interval
+                                            that should be held in memory. Info should contain: length, list of features
+                                            e.g: {
+                                                "5m": {"length": 10, "features": ["close", "open", "ema"]},
+                                                "1h": {"length": 20, "features": ["volume"]}
+                                            }
+        Return:
+            LDB instance
+        """
+        #save the call time
+        self.init_call_time = datetime.datetime.now()
+        
+        #save the symbol and marketendpoint
+        self.symbol = symbol
+        self.market_endpoint = config["binance"]["market_endpoint"]
+        self.candlestick_interval = candlestick_interval
+
+        #create client for interacting with binance
+        self.client = Client(api_key=config["binance"]["key"], api_secret=config["binance"]["secret"])
+        
+        """
+        Set the url
+        """
+        if self.market_endpoint == "futures":
+            self.url = f"https://www.binance.com/en/futures/{self.symbol[0:-4]}_USDT"
+        elif self.market_endpoint == "spot":
+            self.url = f"https://www.binance.com/en/trade/{self.symbol[0:-4]}_USDT?layout=pro"
+        else:
+            raise Exception("Please choose a valid market_endpoint: [futures, spot]")
+        
+        """
+        Download the initial data
+        """
+        #where we save the data
+        self.data = {}
+
+        #download all the data
+        for cs_interval, length in self.candlestick_interval.items():
+            #download the data
+            data = self._download(candlestick_interval=cs_interval, limit=length+1)
+
+            #safety reset the index
+            data.reset_index(inplace=True, drop=True)
+
+            #save data
+            self.data[cs_interval] = data
+
+    def update_data(self, candlestick_interval):
+        """
+        Description:
+            Method for updating our data
+        """
+            
+        #save old values for checking the update
+        old_lasttime = self.data[candlestick_interval].iloc[-1,0]
+        old_shape = self.data[candlestick_interval].shape
+
+        #download data
+        new_klines = self._download(candlestick_interval=candlestick_interval, limit=2)
+
+        #check if data is full
+        if new_klines.shape != (2,7):
+            raise Exception("Downloaded data not complete")
+
+        """
+        Update the dataframe
+        """
+        #replace last item
+        self.data[candlestick_interval].iloc[-1,:] = new_klines.iloc[0,:]
+        #add new item
+        self.data[candlestick_interval] = self.data[candlestick_interval].append(other=new_klines.iloc[1,:], ignore_index=True)
+        #remove first item
+        self.data[candlestick_interval].drop(index=0,axis=0,inplace=True)
+        #reset index
+        self.data[candlestick_interval].reset_index(inplace=True, drop=True)
+
+        """
+        Check if update was successfull
+        """
+        #shape check
+        if self.data[candlestick_interval].shape != old_shape:
+            raise Exception("Something went wrong with your dataupdate, the dataframe did not remain its shape")
+
+        #lasttime check
+        if self.data[candlestick_interval].iloc[-1,0] == old_lasttime:
+            raise Exception("Something went wrong with your dataupdate, the last time did not get updated")
+
+        #equidistance check
+        diff = self.data[candlestick_interval]["open_time"].diff().iloc[1:]
+        count = diff != pd.Timedelta(candlestick_interval)
+        count = count.sum()
+        
+        if count > 0:
+            raise Exception("Something went wrong with your dataupdate, the rows are not equidistant")
+        
+        return self.symbol
+
+    def get_state(self, candlestick_interval, features, derive, scaling_method, window_size, device):
+        #get the data
+        data = self.data[candlestick_interval]
+
+        #remove last row
+        data = data.iloc[:-1,:]
+
+        #add the technical analysis data
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore")
+            data = ta.add_all_ta_features(data, open='open', high="high", low="low", close="close", volume="volume", fillna=True)
+
+        #select the features
+        data = data[features].copy()
+
+        #prep the data (data is now a numpy array)
+        data, _ = TrainDataBase._raw_data_prep(data=data, derive=derive, scaling_method=scaling_method)
+
+        #get correct size
+        data = data[-window_size:, :]
+
+        #convert to pytorch tensor and move to device
+        data = torch.tensor(data, device=device)
+
+        #add the batch dimension
+        data = data.unsqueeze(dim=0)
+        
+        return data
+
+    @classmethod
+    def create(cls, symbol, config, candlestick_interval):
+        instance = cls(symbol=symbol, config=config, candlestick_interval=candlestick_interval)
+        return instance
+
+    def __str__(self):
+        return f"""------------\nLDB Object of Symbol:    {self.symbol},\nInitializationtime:      {self.init_call_time},\nCandlestick Intervals:   {self.candlestick_interval},\nMarket Endpoint:         {self.market_endpoint}\n------------"""
+
+
 if __name__ == "__main__":
-    pass
+    def _read_config(path=None):
+        """
+        Function for reading in the config.json file
+        """
+        #create the filepath
+        if path:
+            if "config.json" in path:
+                file_path = path
+            else:
+                file_path = f"{path}/config.json"
+        else:
+            file_path = "config.json"
+        
+        #load in config
+        try:
+            with open(file_path, "r") as json_file:
+                config = json.load(json_file)
+        except Exception:
+            raise Exception("Your config file is corrupt (wrong syntax, missing values, ...)")
+
+        #check for completeness
+        if len(config["binance"]) != 4:
+            raise Exception("Make sure your config file is complete, under section binance something seems to be wrong")
+        
+        if len(config["discord"]) != 4:
+            raise Exception("Make sure your config file is complete, under section discord something seems to be wrong")
+
+        return config
+    
+    config = _read_config()
+    
+    d = {"5m": 100,
+         "1h": 5
+        }
+    
+    def timer():
+        #incase the timer got called immediately after a 5 minute
+        while datetime.datetime.now().minute % 5 == 0:
+            pass
+        while datetime.datetime.now().minute % 5 != 0:
+            pass
+    
+
+    ldb = LiveDataBase.create(symbol="ETHUSDT", config=config, candlestick_interval=d)
+
+    for i in range(5):
+        timer()
+        time.sleep(10)
+        ldb.update_data(candlestick_interval="5m")
+        prep = ldb.get_state(candlestick_interval="5m", features=["close", "open", "volume"], derive=True, scaling_method="global", window_size=20, device="cpu")
+        print(prep)
