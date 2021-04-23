@@ -533,9 +533,9 @@ class Experiment():
 
 if __name__ == "__main__":
     MHP_space = {
-        "hidden_size": [10, 100],
-        "num_layers": [2, 5],
-        "lr": [0.01, 0.005],
+        "hidden_size": [10],
+        "num_layers": [2],
+        "lr": [0.01],
         "epochs": [30]
     }
 
@@ -544,7 +544,7 @@ if __name__ == "__main__":
         "derived": [True],
         "features": [["close", "open", "volume"]],
         "batch_size": [100],
-        "window_size": [20, 60],
+        "window_size": [20],
         "labeling_method": ["smoothing_extrema_labeling"],
         "scaling_method": ["global"],
         "test_percentage": [0.2],
@@ -558,7 +558,7 @@ if __name__ == "__main__":
                      performanceanalytics_database_path="./databases/testdbbtc",
                      network=Network,
                      device=None,
-                     identifier="testbtc",
+                     identifier="test2",
                      torch_seed=None,
                      checkpointing=True)
     
