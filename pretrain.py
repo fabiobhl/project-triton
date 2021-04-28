@@ -554,11 +554,11 @@ if __name__ == "__main__":
     exp = Experiment(path="./experiments",
                      MHP_space=MHP_space,
                      DHP_space=DHP_space,
-                     train_database_path="./databases/dbbtc",
-                     performanceanalytics_database_path="./databases/testdbbtc",
+                     train_database_path="./databases/dbeth",
+                     performanceanalytics_database_path="./databases/testeth",
                      network=Network,
                      device=None,
-                     identifier="test2",
+                     identifier="testeth",
                      torch_seed=None,
                      checkpointing=True)
     
