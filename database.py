@@ -20,7 +20,7 @@ from matplotlib import pyplot as plt
 import torch
 
 #external methods
-from utils import read_config, rolling_window
+from utils import read_config, rolling_window, read_json
 """
 ToDo:
     -implement full candlestick_interval choosing: database.create(), labeling imports/creationgs, test everything
@@ -348,7 +348,7 @@ class TrainDataBase(DataBase):
             yield torch.tensor(data, device=self.device), torch.tensor(labels, dtype=torch.long, device=self.device)
 
     @staticmethod
-    def _raw_data_prep(data, derive, scaling_method):
+    def _raw_data_prep(data, derive, scaling_method, scaler_params=None):
         
         def derive_data(data):
             """
@@ -377,12 +377,18 @@ class TrainDataBase(DataBase):
         data = data.to_numpy()
 
         #scale
+        scaler_params = None
         if scaling_method == "global":
+            #create the scaler
             scaler = preprocessing.MaxAbsScaler(copy=False)
+            if scaler_params is not None:
+                scaler = scaler.set_params(scaler_params)
+            
+            #fit the data
             scaler.fit_transform(data)
 
             #safe the scaler params
-            scaler_params = scaler.get_params()
+            scaler_params = scaler.get_params(deep=True)
         else:
             raise Exception("Your chosen scaling method does not exist")
 
@@ -556,72 +562,47 @@ class LiveDataBase():
 
         return data
 
-    def __init__(self, symbol, config, candlestick_interval):
-        """
-        Description:
-            Constructor for LDB class.
-        Arguments:
-            symbol[string]:                 The symbol this LDB should work with
-            config[dict]:                   The imported config file as a dictionary
-            candlestick_interval[dict]:     The wished candlestick_intervals and the info for every interval
-                                            that should be held in memory. Info should contain: length, list of features
-                                            e.g: {
-                                                "5m": {"length": 10, "features": ["close", "open", "ema"]},
-                                                "1h": {"length": 20, "features": ["volume"]}
-                                            }
-        Return:
-            LDB instance
-        """
+    def _setup(self):
+        #download the data
+        data = self._download(candlestick_interval=self.candlestick_interval, limit=self.info["window_size"]+100)
+
+        #safety reset the index
+        data.reset_index(inplace=True, drop=True)
+
+        return data
+
+    def __init__(self, symbol, info_path, config_path=None):
         #save the call time
         self.init_call_time = datetime.datetime.now()
         
-        #save the symbol and marketendpoint
+        #read in the config file
+        self.config = read_config(path=config_path)
+
+        #read in the info file
+        self.info = read_json(path=info_path)
+
         self.symbol = symbol
-        self.market_endpoint = config["binance"]["market_endpoint"]
-        self.candlestick_interval = candlestick_interval
+        self.market_endpoint = self.config["binance"]["market_endpoint"]
+        self.candlestick_interval = self.info["candlestick_interval"]
 
         #create client for interacting with binance
-        self.client = Client(api_key=config["binance"]["key"], api_secret=config["binance"]["secret"])
+        self.client = Client(api_key=self.config["binance"]["key"], api_secret=self.config["binance"]["secret"])
+                
+        #download the initial data
+        self.data = self._setup()
         
-        """
-        Set the url
-        """
-        if self.market_endpoint == "futures":
-            self.url = f"https://www.binance.com/en/futures/{self.symbol[0:-4]}_USDT"
-        elif self.market_endpoint == "spot":
-            self.url = f"https://www.binance.com/en/trade/{self.symbol[0:-4]}_USDT?layout=pro"
-        else:
-            raise Exception("Please choose a valid market_endpoint: [futures, spot]")
-        
-        """
-        Download the initial data
-        """
-        #where we save the data
-        self.data = {}
-
-        #download all the data
-        for cs_interval, length in self.candlestick_interval.items():
-            #download the data
-            data = self._download(candlestick_interval=cs_interval, limit=length+1)
-
-            #safety reset the index
-            data.reset_index(inplace=True, drop=True)
-
-            #save data
-            self.data[cs_interval] = data
-
-    def update_data(self, candlestick_interval):
+    def update_data(self):
         """
         Description:
             Method for updating our data
         """
             
         #save old values for checking the update
-        old_lasttime = self.data[candlestick_interval].iloc[-1,0]
-        old_shape = self.data[candlestick_interval].shape
+        old_lasttime = self.data.iloc[-1,0]
+        old_shape = self.data.shape
 
         #download data
-        new_klines = self._download(candlestick_interval=candlestick_interval, limit=2)
+        new_klines = self._download(candlestick_interval=self.candlestick_interval, limit=2)
 
         #check if data is full
         if new_klines.shape != (2,7):
@@ -631,38 +612,36 @@ class LiveDataBase():
         Update the dataframe
         """
         #replace last item
-        self.data[candlestick_interval].iloc[-1,:] = new_klines.iloc[0,:]
+        self.data.iloc[-1,:] = new_klines.iloc[0,:]
         #add new item
-        self.data[candlestick_interval] = self.data[candlestick_interval].append(other=new_klines.iloc[1,:], ignore_index=True)
+        self.data = self.data.append(other=new_klines.iloc[1,:], ignore_index=True)
         #remove first item
-        self.data[candlestick_interval].drop(index=0,axis=0,inplace=True)
+        self.data.drop(index=0,axis=0,inplace=True)
         #reset index
-        self.data[candlestick_interval].reset_index(inplace=True, drop=True)
+        self.data.reset_index(inplace=True, drop=True)
 
         """
         Check if update was successfull
         """
         #shape check
-        if self.data[candlestick_interval].shape != old_shape:
+        if self.data.shape != old_shape:
             raise Exception("Something went wrong with your dataupdate, the dataframe did not remain its shape")
 
         #lasttime check
-        if self.data[candlestick_interval].iloc[-1,0] == old_lasttime:
+        if self.data.iloc[-1,0] == old_lasttime:
             raise Exception("Something went wrong with your dataupdate, the last time did not get updated")
 
         #equidistance check
-        diff = self.data[candlestick_interval]["open_time"].diff().iloc[1:]
-        count = diff != pd.Timedelta(candlestick_interval)
+        diff = self.data["open_time"].diff().iloc[1:]
+        count = diff != pd.Timedelta(self.candlestick_interval)
         count = count.sum()
         
         if count > 0:
             raise Exception("Something went wrong with your dataupdate, the rows are not equidistant")
-        
-        return self.symbol
 
-    def get_state(self, candlestick_interval, features, derive, scaling_method, window_size, device):
+    def get_state(self, device="cpu"):
         #get the data
-        data = self.data[candlestick_interval]
+        data = self.data.copy()
 
         #remove last row
         data = data.iloc[:-1,:]
@@ -673,13 +652,13 @@ class LiveDataBase():
             data = ta.add_all_ta_features(data, open='open', high="high", low="low", close="close", volume="volume", fillna=True)
 
         #select the features
-        data = data[features].copy()
+        data = data[self.info["features"]]
 
         #prep the data (data is now a numpy array)
-        data, _ = TrainDataBase._raw_data_prep(data=data, derive=derive, scaling_method=scaling_method)
+        data, _ = TrainDataBase._raw_data_prep(data=data, derive=self.info["derived"], scaling_method=self.info["scaling_method"], scaler_params=self.info["scaler_params"])
 
         #get correct size
-        data = data[-window_size:, :]
+        data = data[-self.info["window_size"]:, :]
 
         #convert to pytorch tensor and move to device
         data = torch.tensor(data, device=device)
@@ -690,66 +669,9 @@ class LiveDataBase():
         return data
 
     @classmethod
-    def create(cls, symbol, config, candlestick_interval):
-        instance = cls(symbol=symbol, config=config, candlestick_interval=candlestick_interval)
+    def create(cls, symbol, info_path, config_path=None):
+        instance = cls(symbol=symbol, info_path=info_path, config_path=config_path)
         return instance
 
-    def __str__(self):
-        return f"""------------\nLDB Object of Symbol:    {self.symbol},\nInitializationtime:      {self.init_call_time},\nCandlestick Intervals:   {self.candlestick_interval},\nMarket Endpoint:         {self.market_endpoint}\n------------"""
-
-
-if __name__ == "__main__":
-    
-    def _read_config(path=None):
-        """
-        Function for reading in the config.json file
-        """
-        #create the filepath
-        if path:
-            if "config.json" in path:
-                file_path = path
-            else:
-                file_path = f"{path}/config.json"
-        else:
-            file_path = "config.json"
-        
-        #load in config
-        try:
-            with open(file_path, "r") as json_file:
-                config = json.load(json_file)
-        except Exception:
-            raise Exception("Your config file is corrupt (wrong syntax, missing values, ...)")
-
-        #check for completeness
-        if len(config["binance"]) != 4:
-            raise Exception("Make sure your config file is complete, under section binance something seems to be wrong")
-        
-        if len(config["discord"]) != 4:
-            raise Exception("Make sure your config file is complete, under section discord something seems to be wrong")
-
-        return config
-    """
-    config = _read_config()
-    
-    d = {"5m": 100,
-         "1h": 5
-        }
-    
-    def timer():
-        #incase the timer got called immediately after a 5 minute
-        while datetime.datetime.now().minute % 5 == 0:
-            pass
-        while datetime.datetime.now().minute % 5 != 0:
-            pass
-    
-
-    ldb = LiveDataBase.create(symbol="ETHUSDT", config=config, candlestick_interval=d)
-
-    for i in range(5):
-        timer()
-        time.sleep(10)
-        ldb.update_data(candlestick_interval="5m")
-        prep = ldb.get_state(candlestick_interval="5m", features=["close", "open", "volume"], derive=True, scaling_method="global", window_size=20, device="cpu")
-        print(prep)
-    """
-    DataBase.create(symbol="ETHUSDT", save_path="./databases/testeth", date_span=(datetime.date(2021, 2, 1), datetime.date(2021, 2, 28)), candlestick_interval="5m")
+if __name__ == "__main__":    
+    pass

@@ -27,7 +27,6 @@ class NNActor():
     def get_action(self, state):
 
         preds = self.model(state)
-        print(preds)
 
         action = preds.argmax(dim=1).item()
 

@@ -1,5 +1,7 @@
 import json
 import numpy as np
+import datetime
+import time
 
 """
 To-Do:
@@ -8,10 +10,7 @@ To-Do:
 
 def read_config(path=None):
     """
-    Description:
-        Function for reading in the config.json file
-    Arguments:
-        -path[string]:   Path to the config file. If path is left as None, this function assumes that the config file is in the same folder
+    Function for reading in the config.json file
     """
     #create the filepath
     if path:
@@ -27,16 +26,19 @@ def read_config(path=None):
         with open(file_path, "r") as json_file:
             config = json.load(json_file)
     except Exception:
-        raise Exception("Your config file is corrupt (wrong path, wrong syntax, missing values, ...)")
-
-    #check for completeness
-    if len(config["binance"]) != 4:
-        raise Exception("Make sure your config file is complete, under section binance something seems to be wrong")
-    
-    if len(config["discord"]) != 4:
-        raise Exception("Make sure your config file is complete, under section discord something seems to be wrong")
+        raise Exception("Your config file is corrupt (wrong syntax, missing values, ...)")
 
     return config
+
+def read_json(path):
+    #try to read in the dictionary
+    try:
+        with open(path, "r") as json_file:
+            dictionary = json.load(json_file)
+    except Exception:
+        raise Exception("Your json file is corrupt (wrong syntax, missing values, wrong path, ...)")
+
+    return dictionary
 
 def calculate_profit(input_array, trading_fee):
     """
@@ -147,6 +149,17 @@ def rolling_window(input_array, window_size):
     windows = windows.reshape(windows_amount, window_size, features_amount)
 
     return windows
+
+def timer(candlestick_interval):
+    if candlestick_interval != "5m":
+        raise Exception("Your wished candlestick_interval has not been implemented yet")
+    
+    #incase the timer got called immediately after a 5 minute
+    minute = int(candlestick_interval[0])
+    while datetime.datetime.now().minute % minute == 0:
+        time.sleep(1)
+    while datetime.datetime.now().minute % minute != 0:
+        time.sleep(1)
 
 if __name__ == "__main__":
     pass
