@@ -230,20 +230,21 @@ class Broker():
 
 class Bot():
 
-    def __init__(self, symbol, info_path, actor, config_path=None):    
+    def __init__(self, symbol, run_path, actor, config_path=None):    
         #save the variables
         self.symbol = symbol
-        self.info_path = info_path
+        self.run_path = run_path
+        self.info_path = self.run_path + "/info.json"
         self.config_path = config_path
         
         #config dictionary
         self.config = read_config(path=config_path)
 
         #info dictionary
-        self.info = read_json(path=info_path)
+        self.info = read_json(path=self.info_path)
         
         #setup the ldb
-        self.ldb = LiveDataBase(symbol=self.symbol, info_path=self.info_path, config_path=self.config_path)
+        self.ldb = LiveDataBase(symbol=self.symbol, run_path=self.run_path, config_path=self.config_path)
 
         #save the actor
         self.actor = actor
@@ -272,7 +273,7 @@ class Bot():
             print("Exception: ", e)
 
             #reset our database
-            self.ldb = LiveDataBase(symbol=self.symbol, info_path=self.info_path, config_path=self.config_path)
+            self.ldb = LiveDataBase(symbol=self.symbol, run_path=self.run_path, config_path=self.config_path)
 
             #save no action
             self.actionlog.append(action=None, actual_price=None)
@@ -318,8 +319,8 @@ if __name__ == "__main__":
     from pretrain import Network
 
     #load in the actor
-    Actor = NNActor(neural_network=Network, load_path="./experiments/testeth/Run1", epoch=0)
+    Actor = NNActor(neural_network=Network, load_path="./experiments/testeth2/Run1", epoch=0)
 
-    bot = Bot(symbol="ETHUSDT", info_path="./experiments/testeth/Run1/info.json", actor=Actor)
+    bot = Bot(symbol="ETHUSDT", run_path="./experiments/testeth2/Run1", actor=Actor)
 
     bot.run()

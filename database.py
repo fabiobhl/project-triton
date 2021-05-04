@@ -18,6 +18,7 @@ import ta
 from sklearn import preprocessing
 from matplotlib import pyplot as plt
 import torch
+import joblib
 
 #external methods
 from utils import read_config, rolling_window, read_json
@@ -348,7 +349,7 @@ class TrainDataBase(DataBase):
             yield torch.tensor(data, device=self.device), torch.tensor(labels, dtype=torch.long, device=self.device)
 
     @staticmethod
-    def _raw_data_prep(data, derive, scaling_method, scaler_params=None):
+    def _raw_data_prep(data, derive, scaling_method, preloaded_scaler=None):
         
         def derive_data(data):
             """
@@ -377,22 +378,26 @@ class TrainDataBase(DataBase):
         data = data.to_numpy()
 
         #scale
-        scaler_params = None
+        scaler = None
         if scaling_method == "global":
-            #create the scaler
-            scaler = preprocessing.MaxAbsScaler(copy=False)
-            if scaler_params is not None:
-                scaler = scaler.set_params(scaler_params)
+            if preloaded_scaler is not None:
+                #set the scaler
+                scaler = preloaded_scaler
+                scaler.copy = False
+            else:
+                #create the scaler
+                scaler = preprocessing.MaxAbsScaler(copy=False)
+
+                #fit scaler to data
+                scaler.fit(data)
             
             #fit the data
-            scaler.fit_transform(data)
+            scaler.transform(data)
 
-            #safe the scaler params
-            scaler_params = scaler.get_params(deep=True)
         else:
             raise Exception("Your chosen scaling method does not exist")
 
-        return data, scaler_params
+        return data, scaler
 
     def _prepare_data(self):
         """
@@ -410,10 +415,10 @@ class TrainDataBase(DataBase):
         data = self[self.DHP["candlestick_interval"], self.DHP["features"]]
 
         #data operations that can be made on the whole dataset
-        data, scaler_params = self._raw_data_prep(data=data, derive=self.DHP["derived"], scaling_method=self.DHP["scaling_method"])
+        data, scaler = self._raw_data_prep(data=data, derive=self.DHP["derived"], scaling_method=self.DHP["scaling_method"])
 
         #save the scaler parameters
-        self.scaler_params = scaler_params
+        self.scaler = scaler
 
         #roll the data (rolling window)
         windows = rolling_window(data, self.DHP["window_size"])
@@ -571,16 +576,24 @@ class LiveDataBase():
 
         return data
 
-    def __init__(self, symbol, info_path, config_path=None):
+    def __init__(self, symbol, run_path, config_path=None):
         #save the call time
         self.init_call_time = datetime.datetime.now()
         
+        #save the paths
+        self.config_path = config_path
+        self.run_path = run_path
+        self.info_path = run_path + "/info.json"
+
         #read in the config file
-        self.config = read_config(path=config_path)
+        self.config = read_config(path=self.config_path)
 
         #read in the info file
-        self.info = read_json(path=info_path)
+        self.info = read_json(path=self.info_path)
+        #load in the scaler
+        self.scaler = joblib.load(filename=f"{self.run_path}/scaler.joblib")
 
+        #svve variables
         self.symbol = symbol
         self.market_endpoint = self.config["binance"]["market_endpoint"]
         self.candlestick_interval = self.info["candlestick_interval"]
@@ -655,7 +668,7 @@ class LiveDataBase():
         data = data[self.info["features"]]
 
         #prep the data (data is now a numpy array)
-        data, _ = TrainDataBase._raw_data_prep(data=data, derive=self.info["derived"], scaling_method=self.info["scaling_method"], scaler_params=self.info["scaler_params"])
+        data, _ = TrainDataBase._raw_data_prep(data=data, derive=self.info["derived"], scaling_method=self.info["scaling_method"], preloaded_scaler=self.scaler)
 
         #get correct size
         data = data[-self.info["window_size"]:, :]

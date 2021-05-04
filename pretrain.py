@@ -14,6 +14,7 @@ from tqdm import tqdm
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
+import joblib
 
 #pytorch imports
 import torch
@@ -516,9 +517,11 @@ class Experiment():
         """
         #save run parameters
         parameters = run.copy()
-        parameters["scaler_params"] = tdb.scaler_params
         with open(f"{self.path}/Run{self.run_count}/info.json", "w") as info:
             json.dump(parameters, info, indent=4)
+
+        #save the scaler
+        joblib.dump(value=tdb.scaler, filename=f"{self.path}/Run{self.run_count}/scaler.joblib")
 
     def start(self):
         for index, run in enumerate(self.runs):
@@ -536,7 +539,7 @@ if __name__ == "__main__":
         "hidden_size": [10],
         "num_layers": [2],
         "lr": [0.01],
-        "epochs": [30]
+        "epochs": [2]
     }
 
     DHP_space = {
@@ -558,7 +561,7 @@ if __name__ == "__main__":
                      performanceanalytics_database_path="./databases/testeth",
                      network=Network,
                      device=None,
-                     identifier="testeth",
+                     identifier="testeth2",
                      torch_seed=None,
                      checkpointing=True)
     
