@@ -135,7 +135,7 @@ class DataBase():
                 if "open_time" in data.columns:
                     data["open_time"]= pd.to_datetime(data["open_time"])
 
-                return data
+                return data[index[1]]
             
             except FileNotFoundError:
                 raise Exception("Your chosen datatype is not available in this DataBase")
@@ -289,7 +289,7 @@ class TrainDataBase(DataBase):
         -test_percentage[float]:        What percentage of your dataset should be used as tests
         -device[torch.device]:          The device you want your data on, if set to None then the device gets autodetected (utilises cuda if it is available)
     """
-    def __init__(self, path, DHP, device=None):
+    def __init__(self, path, DHP, scaler=None, device=None):
         #calling the inheritance
         super().__init__(path)
 
@@ -308,6 +308,15 @@ class TrainDataBase(DataBase):
             self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         else:
             self.device = torch.device(device)
+
+        #save the scaler
+        if scaler is not None and type(scaler) == str:
+            #load in the scaler
+            self.scaler = joblib.load(filename=scaler)
+        elif scaler is not None and isinstance(scaler, preprocessing.MaxAbsScaler):
+            self.scaler = scaler
+        else:
+            self.scaler = None
 
         #prepare the data
         self._prepare_data()
@@ -415,7 +424,10 @@ class TrainDataBase(DataBase):
         data = self[self.DHP["candlestick_interval"], self.DHP["features"]]
 
         #data operations that can be made on the whole dataset
-        data, scaler = self._raw_data_prep(data=data, derive=self.DHP["derived"], scaling_method=self.DHP["scaling_method"])
+        data, scaler = self._raw_data_prep(data=data, derive=self.DHP["derived"], scaling_method=self.DHP["scaling_method"], preloaded_scaler=self.scaler)
+
+        #remove first label
+        labels = labels[1:]
 
         #save the scaler parameters
         self.scaler = scaler
@@ -434,6 +446,72 @@ class TrainDataBase(DataBase):
         #batch the labels
         labels = labels[0:batches_amount*self.DHP["batch_size"]]
         labels = labels.reshape(batches_amount, self.DHP["batch_size"])
+
+        """
+            data2 = self[self.DHP["candlestick_interval"], self.DHP["features"]]
+
+            def derive_data(data):
+                #Method for deriving the data: from absolute values to relative values
+
+                data = data.copy()
+
+                pct = ["open", "high", "low", "close", "volume_nvi", "volume_vwap", "volatility_atr", "volatility_bbm", "volatility_bbh", "volatility_bbl", "volatility_bbw", "volatility_kcc", "volatility_kch", "volatility_kcl", "volatility_kcw", "volatility_dcl", "volatility_dch", "volatility_dcm", "volatility_dcw", "trend_sma_fast", "trend_sma_slow", "trend_ema_fast", "trend_ema_slow", "trend_mass_index", "trend_ichimoku_conv", "trend_ichimoku_base", "trend_ichimoku_a", "trend_ichimoku_b", "trend_visual_ichimoku_a", "trend_visual_ichimoku_b", "trend_psar_up", "trend_psar_down", "momentum_uo", "momentum_kama"]
+                diff = ["volume", "volume_adi", "volume_obv", "volume_mfi", "volatility_ui", "trend_adx", "momentum_rsi", "momentum_wr", "others_cr"]
+                none = ["volume_cmf", "volume_fi", "volume_em", "volume_sma_em", "volume_vpt", "volatility_bbhi", "volatility_bbli", "volatility_bbp", "volatility_kcp", "volatility_kchi", "volatility_kcli", "volatility_dcp", "trend_macd", "trend_macd_signal", "trend_macd_diff", "trend_adx_pos", "trend_adx_neg", "trend_vortex_ind_pos", "trend_vortex_ind_neg", "trend_vortex_ind_diff", "trend_trix", "trend_cci", "trend_dpo", "trend_kst", "trend_kst_sig", "trend_kst_diff", "trend_aroon_up", "trend_aroon_down", "trend_aroon_ind", "trend_psar_up_indicator", "trend_psar_down_indicator", "trend_stc", "momentum_stoch_rsi", "momentum_stoch_rsi_k", "momentum_stoch_rsi_d", "momentum_tsi", "momentum_stoch", "momentum_stoch_signal", "momentum_ao", "momentum_roc", "momentum_ppo", "momentum_ppo_signal", "momentum_ppo_hist", "others_dr", "others_dlr"]
+
+                #extract the chosen features
+                pct_features = [x for x in pct if x in data.columns]
+                diff_features = [x for x in diff if x in data.columns]
+
+                data[pct_features] = data[pct_features].pct_change()
+                data[diff_features] = data[diff_features].diff()
+
+                return data
+            
+            derived_data2 = derive_data(data2)
+            derived_data2 = derived_data2.iloc[1:,:]
+            data2 = data2.iloc[1:,:]
+
+            self.scaler.copy = True
+            bsh = [np.nan]*100
+
+            fig, (ax1, ax2) = plt.subplots(nrows=2)
+            fig.show()
+
+            windows2 = batches[1,:,:,:]
+            labels2 = labels[1,:]
+            
+            for index, window in enumerate(windows2):
+                index2 = index+100
+                derived_window = self.scaler.inverse_transform(window)
+                window2 = data2.iloc[index2:self.DHP["window_size"]+index2].copy()
+                window2_derived = derived_data2.iloc[index2:self.DHP["window_size"]+index2].copy()
+
+                window2.reset_index(inplace=True, drop=True)
+                window2_derived.reset_index(inplace=True, drop=True)
+
+                #add the labels
+                bsh.append(int(labels2[index]))
+
+                window2["bsh"] = bsh[-len(window2):]
+                window2["hold"] = window2.loc[window2["bsh"]==0, "close"]
+                window2["buy"] = window2.loc[window2["bsh"]==1, "close"]
+                window2["sell"] = window2.loc[window2["bsh"]==2, "close"]
+
+                ax1.cla()
+                ax2.cla()
+                ax1.plot(window2["close"], color="black")
+                ax1.plot(window2["hold"], marker="o", linestyle="", color="gray")
+                ax1.plot(window2["buy"], marker="o", linestyle="", color="green")
+                ax1.plot(window2["sell"], marker="o", linestyle="", color="red")
+
+                ax2.plot(window2_derived["close"], color="black")
+                ax2.plot(derived_window[:,0], linestyle="--", color="blue")
+                
+                
+                fig.canvas.draw()
+                plt.waitforbuttonpress()
+        """
 
         #split into train/test data
         train_amount = batches_amount - math.floor(batches_amount*self.DHP["test_percentage"])
@@ -686,5 +764,79 @@ class LiveDataBase():
         instance = cls(symbol=symbol, info_path=info_path, config_path=config_path)
         return instance
 
-if __name__ == "__main__":    
-    pass
+class PerformanceAnalyticsDataBase(DataBase):
+
+    def __init__(self, database_path, HP, scaler, additional_window_size=100):
+        #calling the inheritance
+        super().__init__(database_path)
+
+        #save variables
+        self.database_path = database_path
+        self.HP = HP
+        self.additional_window_size = additional_window_size
+        self.iterator = 0
+
+        #defining initial data
+        self.data = self[self.HP["candlestick_interval"], ["open_time", "open", "high", "low", "close", "volume", "close_time"]].iloc[self.iterator: self.iterator + self.HP["window_size"]+additional_window_size,:]
+
+        #get the length of the undelying data
+        self.data_length = self[self.HP["candlestick_interval"], "close_time"].shape[0]
+
+        #save the scaler
+        if scaler is not None and type(scaler) == str:
+            #load in the scaler
+            self.scaler = joblib.load(filename=scaler)
+        elif scaler is not None and isinstance(scaler, preprocessing.MaxAbsScaler):
+            self.scaler = scaler
+        else:
+            raise Exception("Please provide either a scaler location or a scaler instance")
+
+    def update_data(self): 
+        #update the iterator
+        self.iterator += 1
+
+        #check for boundary
+        if self.iterator + self.HP["window_size"]+100 >= self.data_length:
+            return False 
+
+        #update the data
+        self.data = self[self.HP["candlestick_interval"], ["open_time", "open", "high", "low", "close", "volume", "close_time"]].iloc[self.iterator: self.iterator + self.HP["window_size"]+self.additional_window_size,:].reset_index(drop=True)
+
+        return True
+    
+    def get_state(self, device="cpu"):
+        #get the data
+        data = self.data.copy()
+
+        #add the technical analysis data
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore")
+            data = ta.add_all_ta_features(data, open='open', high="high", low="low", close="close", volume="volume", fillna=True)
+        #select the features
+        data = data[self.HP["features"]]                                                    
+
+        #prep the data (data is now a numpy array)
+        data, _ = TrainDataBase._raw_data_prep(data=data, derive=self.HP["derived"], scaling_method=self.HP["scaling_method"], preloaded_scaler=self.scaler)
+
+        #get correct size
+        data = data[-self.HP["window_size"]:, :]
+
+        #convert to pytorch tensor and move to device
+        data = torch.tensor(data, device=device)
+
+        #add the batch dimension
+        data = data.unsqueeze(dim=0)
+        
+        return data
+
+    def get_time(self):
+        return self.data["close_time"].iloc[-1]
+
+    def get_price(self):
+        return self.data["close"].iloc[-1]
+
+    def get_total_iterations(self):
+        return self.data_length - self.HP["window_size"] - self.additional_window_size
+
+if __name__ == "__main__":
+    DataBase.create(save_path="./databases/ethtest", symbol="ETHUSDT", date_span=(datetime.date(2021, 3, 1), datetime.date(2021, 4, 30)), candlestick_interval="5m")

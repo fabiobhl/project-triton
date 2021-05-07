@@ -15,7 +15,7 @@ class NNActor():
             info = json.load(json_file)
 
         #load in the pretrained weights
-        state_dict = torch.load(f"{load_path}/Epoch{epoch}")
+        state_dict = torch.load(f"{load_path}/Epoch{epoch}", map_location=torch.device("cpu"))
         
         #create the neural network
         self.model = neural_network(MHP=info)

@@ -13,7 +13,9 @@ import collections
 from tqdm import tqdm
 import numpy as np
 import pandas as pd
+import matplotlib
 from matplotlib import pyplot as plt
+matplotlib.use("Agg")
 import joblib
 
 #pytorch imports
@@ -245,6 +247,10 @@ class RunManager():
         
         self.tb.add_figure("Specific Profit Graph", fig, self.epoch_count)
 
+        #clear the figure
+        fig.clear()
+        del(fig)
+
         #trading Activity Figure
         fig, ax = plt.subplots()
 
@@ -262,6 +268,13 @@ class RunManager():
         fig.tight_layout()
         
         self.tb.add_figure("Trading Activity", fig, self.epoch_count)
+
+        #clear the figure
+        fig.clear()
+        del(fig)
+
+        #close all the figures
+        plt.close("all")
 
     def track_test_metrics(self, loss, preds, labels):
         #track test loss
@@ -295,7 +308,7 @@ class Experiment():
         File Setup
         """
         #presave the startdate
-        start_date = datetime.datetime.now().strftime("%d-%m-%Y--%H:%M:%S")
+        start_date = datetime.datetime.now().strftime("%d-%m-%Y--%H-%M-%S")
 
         #create the id if not given, check if it already exists
         if identifier == None:
@@ -401,7 +414,7 @@ class Experiment():
         tdb = TrainDataBase(path=self.train_database_path, DHP=run, device=self.device)
 
         #create the pa
-        pa = PerformanceAnalytics(path=self.performanceanalytics_database_path, DHP=run, device=self.device)
+        pa = PerformanceAnalytics(path=self.performanceanalytics_database_path, DHP=run, scaler=tdb.scaler, device=self.device)
 
         #create network
         model = self.network(MHP=run)
@@ -536,18 +549,37 @@ class Experiment():
 
 if __name__ == "__main__":
     MHP_space = {
-        "hidden_size": [10],
-        "num_layers": [2],
-        "lr": [0.01],
-        "epochs": [2]
+        "hidden_size": [10, 100],
+        "num_layers": [2, 5],
+        "lr": [0.01, 0.1],
+        "epochs": [50]
     }
 
     DHP_space = {
         "candlestick_interval": ["5m"],
         "derived": [True],
-        "features": [["close", "open", "volume"]],
+        "features": [["close", "open", "high", "low", "volume", "trend_macd", "trend_ema_slow", "trend_adx", "momentum_rsi", "momentum_kama", "trend_psar_up_indicator", "trend_psar_down_indicator", "volatility_bbhi", "volatility_bbli", "volatility_kchi", "volatility_kcli", "volatility_ui"]],
+        "batch_size": [100, 10],
+        "window_size": [10, 100],
+        "labeling_method": ["smoothing_extrema_labeling"],
+        "scaling_method": ["global"],
+        "test_percentage": [0.2],
+        "balancing_method": ["criterion_weights"]
+    }
+
+    MHP_space2 = {
+        "hidden_size": [10],
+        "num_layers": [2],
+        "lr": [0.01],
+        "epochs": [5]
+    }
+
+    DHP_space2 = {
+        "candlestick_interval": ["5m"],
+        "derived": [True],
+        "features": [["close", "open", "high", "low", "volume", "trend_macd", "trend_ema_slow", "trend_adx", "momentum_rsi", "momentum_kama", "trend_psar_up_indicator", "trend_psar_down_indicator", "volatility_bbhi", "volatility_bbli", "volatility_kchi", "volatility_kcli", "volatility_ui"]],
         "batch_size": [100],
-        "window_size": [20],
+        "window_size": [10],
         "labeling_method": ["smoothing_extrema_labeling"],
         "scaling_method": ["global"],
         "test_percentage": [0.2],
@@ -557,11 +589,11 @@ if __name__ == "__main__":
     exp = Experiment(path="./experiments",
                      MHP_space=MHP_space,
                      DHP_space=DHP_space,
-                     train_database_path="./databases/dbeth",
-                     performanceanalytics_database_path="./databases/testeth",
+                     train_database_path="./databases/eth",
+                     performanceanalytics_database_path="./databases/ethtest",
                      network=Network,
                      device=None,
-                     identifier="testeth2",
+                     identifier="testeth",
                      torch_seed=None,
                      checkpointing=True)
     
