@@ -93,7 +93,7 @@ def calculate_profit(input_array, trading_fee):
         elif action == 2:   #sell
             output_array[i, 4] = output_array[i, 0]
         else:
-            raise Exception(f"Your labels contained values that are not valid! value:{act}")
+            raise Exception(f"Your labels contained values that are not valid! value:{action}")
 
         #do the trading
         if mode == 'buy' and action == 1:
@@ -125,6 +125,7 @@ def rolling_window(input_array, window_size):
     """
     #save the shape
     shape = input_array.shape
+    
     #save the length 
     length = shape[0]
 

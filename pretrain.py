@@ -1,13 +1,11 @@
 #standard python libraries
 import datetime
-import time
-import math
-import uuid
 import os
 import atexit
 import json
 import itertools
 import collections
+import gc
 
 #external libraries
 from tqdm import tqdm
@@ -35,7 +33,7 @@ ToDo:
 class NetworkStateful(nn.Module):
 
     def __init__(self, MHP):
-        super(Network, self).__init__()
+        super(NetworkStateful, self).__init__()
 
         #save values
         self.feature_size = len(MHP["features"])
@@ -89,7 +87,7 @@ class Network(nn.Module):
         self.lstm1 = nn.LSTM(input_size=self.feature_size, hidden_size=self.hidden_size, batch_first=True, num_layers=self.num_layers)
 
         #create the relu
-        self.relu = nn.ReLU()
+        self.activation = nn.Tanh()
 
         #create the linear layers
         self.linear = nn.Linear(self.hidden_size, 3)
@@ -101,7 +99,7 @@ class Network(nn.Module):
         x, _ = self.lstm1(x, self._init_hidden_states(x.shape[0]))
 
         #relu
-        x = self.relu(x)
+        x = self.activation(x)
 
         #linear layers
         x = x[:,-1,:]
@@ -426,9 +424,7 @@ class Experiment():
         #create the criterion (Loss Calculator)
         if run["balancing_method"] == "criterion_weights":
             #create the weight tensor
-            train_labels = np.array(tdb.train_labels)
-            train_labels = torch.as_tensor(train_labels)
-            weights = torch.tensor([train_labels.eq(0).sum(), train_labels.eq(1).sum(), train_labels.eq(2).sum()], dtype=torch.float64)
+            weights = tdb.get_label_count()
             weights = weights / weights.sum()
             weights = 1.0 / weights
             weights = weights / weights.sum()
@@ -458,14 +454,13 @@ class Experiment():
             #Training
             """
             #set the network to trainmode
-            model = model.train()
+            model.train()
 
             #train loop
-            with tqdm(total=tdb.train_data.shape[0], desc="Training", unit="batches", leave=False, colour="green") as progressbar:
+            with tqdm(total=tdb.train_batches_amount, desc="Training", unit="batches", leave=False, colour="green") as progressbar:
                 for batch in train_data:
                     #get the the samples and labels
-                    samples = batch[0]
-                    labels = batch[1]
+                    samples, labels = batch
 
                     #zero out the optimizer
                     optimizer.zero_grad()
@@ -487,20 +482,19 @@ class Experiment():
                     progressbar.update(1)
 
             #log the train data
-            number = tdb.train_data.shape[0]*run["batch_size"]  #number_of_batches * batch_size
+            number = tdb.train_batches_amount*run["batch_size"]  #number_of_batches * batch_size
             runman.log_training(num_train_samples=number)
 
             """
             #Testing
             """
             #set the network to evalutation mode
-            model = model.eval()
+            model.eval()
             
-            with tqdm(total=tdb.test_data.shape[0], desc="Testing", unit="batches", leave=False, colour="blue") as progressbar:
+            with tqdm(total=tdb.test_batches_amount, desc="Testing", unit="batches", leave=False, colour="blue") as progressbar:
                 for batch in test_data:
                     #get the the samples and labels
-                    samples = batch[0]
-                    labels = batch[1]
+                    samples, labels = batch
 
                     #get the predictions
                     preds = model(samples)
@@ -518,7 +512,7 @@ class Experiment():
             performance = pa.evaluate_model(model=model) 
 
             #log the train data
-            number = tdb.test_data.shape[0]*run["batch_size"]  #number_of_batches * batch_size
+            number = tdb.test_batches_amount*run["batch_size"]  #number_of_batches * batch_size
             runman.log_testing(num_test_samples=number, performance_data=performance)
 
             #checkpointing
@@ -544,23 +538,25 @@ class Experiment():
             print(f"Running: {index+1}/{self.runs_amount}", ntuple(**run))
             
             self.conduct_run(run=run)
+
+            gc.collect()
             
             print("-"*100)
 
 if __name__ == "__main__":
     MHP_space = {
-        "hidden_size": [10, 100],
-        "num_layers": [2, 5],
-        "lr": [0.01, 0.1],
-        "epochs": [50]
+        "hidden_size": [10],
+        "num_layers": [2],
+        "lr": [0.01],
+        "epochs": [10]
     }
 
     DHP_space = {
         "candlestick_interval": ["5m"],
         "derived": [True],
         "features": [["close", "open", "high", "low", "volume", "trend_macd", "trend_ema_slow", "trend_adx", "momentum_rsi", "momentum_kama", "trend_psar_up_indicator", "trend_psar_down_indicator", "volatility_bbhi", "volatility_bbli", "volatility_kchi", "volatility_kcli", "volatility_ui"]],
-        "batch_size": [100, 10],
-        "window_size": [10, 100],
+        "batch_size": [20],
+        "window_size": [200],
         "labeling_method": ["smoothing_extrema_labeling"],
         "scaling_method": ["global"],
         "test_percentage": [0.2],
@@ -593,7 +589,7 @@ if __name__ == "__main__":
                      performanceanalytics_database_path="./databases/ethtest",
                      network=Network,
                      device=None,
-                     identifier="testeth",
+                     identifier="testeth4",
                      torch_seed=None,
                      checkpointing=True)
     

@@ -51,10 +51,9 @@ class PerformanceAnalytics():
         #set the model evaluation mode
         model.eval()
         #move our network to device
-        model = model.to(self.device)
+        model.to(self.device)
 
         #convert percentage to decimal
-        #trading_fee = trading_fee/100
         trading_fee_dez = trading_fee/100
 
         """
@@ -67,7 +66,7 @@ class PerformanceAnalytics():
             
         #getting the predictions
         data = self.tdb.train()
-        with tqdm(total=self.tdb.train_data.shape[0], desc="Performance", unit="batches", leave=False, colour="magenta") as progressbar:
+        with tqdm(total=self.tdb.train_batches_amount, desc="Performance", unit="batches", leave=False, colour="magenta") as progressbar:
             for batch in data:
                 #get the samples
                 samples = batch[0]

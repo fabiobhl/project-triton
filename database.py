@@ -293,14 +293,6 @@ class TrainDataBase(DataBase):
         #calling the inheritance
         super().__init__(path)
 
-        #get id
-        self.id = uuid.uuid1()
-        #create temporary folder
-        os.mkdir(f"{self.path}/{self.id}")
-
-        #cleanup when we go out of scope
-        atexit.register(self._cleanup)
-
         #safe the variables
         self.DHP = DHP
         #auto detection for device
@@ -319,13 +311,13 @@ class TrainDataBase(DataBase):
             self.scaler = None
 
         #prepare the data
-        self._prepare_data()
+        self.prepd_data, self.prepd_labels = self._prepare_data()
 
-        #load in the mmap
-        self.train_data = np.load(file=f"{self.path}/{self.id}/train_data.npy", mmap_mode="r")
-        self.train_labels = np.load(file=f"{self.path}/{self.id}/train_labels.npy", mmap_mode="r")
-        self.test_data = np.load(file=f"{self.path}/{self.id}/test_data.npy", mmap_mode="r")
-        self.test_labels = np.load(file=f"{self.path}/{self.id}/test_labels.npy", mmap_mode="r")
+        #save data variables
+        self.windows_amount = self.prepd_data.shape[0] - self.DHP["window_size"] + 1
+        self.batches_amount = math.floor(self.windows_amount/self.DHP["batch_size"])
+        self.train_batches_amount = self.batches_amount - math.floor(self.batches_amount*self.DHP["test_percentage"])
+        self.test_batches_amount = self.batches_amount - self.train_batches_amount
 
     def train(self):
         """
@@ -336,12 +328,29 @@ class TrainDataBase(DataBase):
         Return:
             -iterable_data[generator]:      Returns a generator on which you can call next() until it is empty (Note: Throws error!)
         """
-        for i in range(self.train_data.shape[0]):
-            data = np.array(self.train_data[i])
-            labels = np.array(self.train_labels[i])
-            
-            yield torch.tensor(data, device=self.device), torch.tensor(labels, dtype=torch.long, device=self.device)
-    
+        #create the index
+        index = 0
+        label_index = self.DHP["window_size"] - 1
+
+        #get the dataslice length
+        data_slice_len = self.DHP["window_size"] + self.DHP["batch_size"] - 1
+
+        for _ in range(self.train_batches_amount):
+            #get the data_slice
+            data_slice = self.prepd_data[index:index+data_slice_len, :].copy()
+
+            #roll the dataslice
+            windows = rolling_window(data_slice, self.DHP["window_size"])
+
+            #get the correct labels
+            labels = self.prepd_labels[label_index:label_index+self.DHP["batch_size"]]
+
+            #update indeces
+            index += self.DHP["batch_size"]
+            label_index += self.DHP["batch_size"]
+
+            yield torch.tensor(windows, device=self.device), torch.tensor(labels, dtype=torch.long, device=self.device).squeeze()
+
     def test(self):
         """
         Description:
@@ -351,11 +360,28 @@ class TrainDataBase(DataBase):
         Return:
             -iterable_data[generator]:      Returns a generator on which you can call next() until it is empty (Note: Throws error!)
         """
-        for i in range(self.test_data.shape[0]):
-            data = np.array(self.test_data[i])
-            labels = np.array(self.test_labels[i])
+        #create the index
+        index = self.train_batches_amount*self.DHP["batch_size"]
+        label_index = self.DHP["window_size"] - 1 + self.train_batches_amount*self.DHP["batch_size"]
 
-            yield torch.tensor(data, device=self.device), torch.tensor(labels, dtype=torch.long, device=self.device)
+        #get the dataslice length
+        data_slice_len = self.DHP["window_size"] + self.DHP["batch_size"] - 1
+
+        for _ in range(self.test_batches_amount):
+            #get the data_slice
+            data_slice = self.prepd_data[index:index+data_slice_len, :].copy()
+
+            #roll the dataslice
+            windows = rolling_window(data_slice, self.DHP["window_size"])
+
+            #get the correct labels
+            labels = self.prepd_labels[label_index:label_index+self.DHP["batch_size"]]
+
+            #update indeces
+            index += self.DHP["batch_size"]
+            label_index += self.DHP["batch_size"]
+
+            yield torch.tensor(windows, device=self.device), torch.tensor(labels, dtype=torch.long, device=self.device).squeeze()
 
     @staticmethod
     def _raw_data_prep(data, derive, scaling_method, preloaded_scaler=None):
@@ -402,7 +428,6 @@ class TrainDataBase(DataBase):
             
             #fit the data
             scaler.transform(data)
-
         else:
             raise Exception("Your chosen scaling method does not exist")
 
@@ -432,175 +457,14 @@ class TrainDataBase(DataBase):
         #save the scaler parameters
         self.scaler = scaler
 
-        #roll the data (rolling window)
-        windows = rolling_window(data, self.DHP["window_size"])
-        
-        #cut first (window_size-1) elements from labels
-        labels = labels[self.DHP["window_size"]-1:]
+        return data, labels
 
-        #batch the windows
-        batches_amount = math.floor(windows.shape[0]/self.DHP["batch_size"])
-        windows = windows[0:batches_amount*self.DHP["batch_size"],:,:]
-        batches = windows.reshape(batches_amount, self.DHP["batch_size"], self.DHP["window_size"], -1)
+    def get_label_count(self):
 
-        #batch the labels
-        labels = labels[0:batches_amount*self.DHP["batch_size"]]
-        labels = labels.reshape(batches_amount, self.DHP["batch_size"])
+        train_labels_array = self.prepd_labels[self.DHP["window_size"] - 1: self.DHP["window_size"] - 1 + self.train_batches_amount*self.DHP["batch_size"]]
+        train_labels = torch.as_tensor(train_labels_array).squeeze()
 
-        """
-            data2 = self[self.DHP["candlestick_interval"], self.DHP["features"]]
-
-            def derive_data(data):
-                #Method for deriving the data: from absolute values to relative values
-
-                data = data.copy()
-
-                pct = ["open", "high", "low", "close", "volume_nvi", "volume_vwap", "volatility_atr", "volatility_bbm", "volatility_bbh", "volatility_bbl", "volatility_bbw", "volatility_kcc", "volatility_kch", "volatility_kcl", "volatility_kcw", "volatility_dcl", "volatility_dch", "volatility_dcm", "volatility_dcw", "trend_sma_fast", "trend_sma_slow", "trend_ema_fast", "trend_ema_slow", "trend_mass_index", "trend_ichimoku_conv", "trend_ichimoku_base", "trend_ichimoku_a", "trend_ichimoku_b", "trend_visual_ichimoku_a", "trend_visual_ichimoku_b", "trend_psar_up", "trend_psar_down", "momentum_uo", "momentum_kama"]
-                diff = ["volume", "volume_adi", "volume_obv", "volume_mfi", "volatility_ui", "trend_adx", "momentum_rsi", "momentum_wr", "others_cr"]
-                none = ["volume_cmf", "volume_fi", "volume_em", "volume_sma_em", "volume_vpt", "volatility_bbhi", "volatility_bbli", "volatility_bbp", "volatility_kcp", "volatility_kchi", "volatility_kcli", "volatility_dcp", "trend_macd", "trend_macd_signal", "trend_macd_diff", "trend_adx_pos", "trend_adx_neg", "trend_vortex_ind_pos", "trend_vortex_ind_neg", "trend_vortex_ind_diff", "trend_trix", "trend_cci", "trend_dpo", "trend_kst", "trend_kst_sig", "trend_kst_diff", "trend_aroon_up", "trend_aroon_down", "trend_aroon_ind", "trend_psar_up_indicator", "trend_psar_down_indicator", "trend_stc", "momentum_stoch_rsi", "momentum_stoch_rsi_k", "momentum_stoch_rsi_d", "momentum_tsi", "momentum_stoch", "momentum_stoch_signal", "momentum_ao", "momentum_roc", "momentum_ppo", "momentum_ppo_signal", "momentum_ppo_hist", "others_dr", "others_dlr"]
-
-                #extract the chosen features
-                pct_features = [x for x in pct if x in data.columns]
-                diff_features = [x for x in diff if x in data.columns]
-
-                data[pct_features] = data[pct_features].pct_change()
-                data[diff_features] = data[diff_features].diff()
-
-                return data
-            
-            derived_data2 = derive_data(data2)
-            derived_data2 = derived_data2.iloc[1:,:]
-            data2 = data2.iloc[1:,:]
-
-            self.scaler.copy = True
-            bsh = [np.nan]*100
-
-            fig, (ax1, ax2) = plt.subplots(nrows=2)
-            fig.show()
-
-            windows2 = batches[1,:,:,:]
-            labels2 = labels[1,:]
-            
-            for index, window in enumerate(windows2):
-                index2 = index+100
-                derived_window = self.scaler.inverse_transform(window)
-                window2 = data2.iloc[index2:self.DHP["window_size"]+index2].copy()
-                window2_derived = derived_data2.iloc[index2:self.DHP["window_size"]+index2].copy()
-
-                window2.reset_index(inplace=True, drop=True)
-                window2_derived.reset_index(inplace=True, drop=True)
-
-                #add the labels
-                bsh.append(int(labels2[index]))
-
-                window2["bsh"] = bsh[-len(window2):]
-                window2["hold"] = window2.loc[window2["bsh"]==0, "close"]
-                window2["buy"] = window2.loc[window2["bsh"]==1, "close"]
-                window2["sell"] = window2.loc[window2["bsh"]==2, "close"]
-
-                ax1.cla()
-                ax2.cla()
-                ax1.plot(window2["close"], color="black")
-                ax1.plot(window2["hold"], marker="o", linestyle="", color="gray")
-                ax1.plot(window2["buy"], marker="o", linestyle="", color="green")
-                ax1.plot(window2["sell"], marker="o", linestyle="", color="red")
-
-                ax2.plot(window2_derived["close"], color="black")
-                ax2.plot(derived_window[:,0], linestyle="--", color="blue")
-                
-                
-                fig.canvas.draw()
-                plt.waitforbuttonpress()
-        """
-
-        #split into train/test data
-        train_amount = batches_amount - math.floor(batches_amount*self.DHP["test_percentage"])
-        train_data = batches[0:train_amount]
-        test_data = batches[train_amount:]
-        train_labels = labels[0:train_amount]
-        test_labels = labels[train_amount:]
-
-        #save into folder
-        np.save(f"{self.path}/{self.id}/train_data",train_data)
-        np.save(f"{self.path}/{self.id}/test_data",test_data)
-        np.save(f"{self.path}/{self.id}/train_labels",train_labels)
-        np.save(f"{self.path}/{self.id}/test_labels",test_labels)
-
-    def _cleanup(self):
-        """
-        This method gets called when the TrainDataBase goes out of scope and deletes the temporary folder
-        """
-        delattr(self, "train_data")
-        delattr(self, "train_labels")
-        delattr(self, "test_data")
-        delattr(self, "test_labels")
-
-        shutil.rmtree(f"{self.path}/{self.id}")
-
-    @classmethod
-    def control_dataprep(cls, path, window_size, batch_size=10):
-        """
-        Description:
-            A method for checking your data and the rolling process
-        Arguments:
-            -path[string]:          Path to the DataBase
-            -window_size[int]:      The size of your windows
-            -batch_size[int]:       The size of the batches
-        Return:
-            -nothing, runs a interactive graph which can be iterated by clicking any button.
-        """
-        DHP = {
-            "candlestick_interval": "5m",
-            "derived": False,
-            "features": ["close", "open", "volume"],
-            "batch_size": batch_size,
-            "window_size": window_size,
-            "labeling_method": "smoothing_extrema_labeling",
-            "scaling_method": "none",
-            "test_percentage": 0.2
-        }
-        #load in the tdb
-        tdb = cls(path=path, DHP=DHP, device="cpu")
-        #get the windows generator
-        windows = tdb.train()
-        #get the data unbatches/rolled
-        data = tdb["raw_data", ["close", "open", "volume"]].iloc[0:1000, :]
-        minimum = data["open"].min()
-        maximum = data["open"].max()
-        labels = tdb.get_extended_labels("smoothing_extrema_labeling").iloc[0:1000,:]
-        #craete figure
-        fig, (ax1, ax2) = plt.subplots(nrows=2)
-        fig.show()
-
-        for batch_index in range(10):
-            #get the batch
-            batch, batch_labels = next(windows)
-            
-            for i in range(batch_size):
-                index = batch_index*10 + i
-                print(index)
-
-                #ax2
-                ax2.cla()
-                ax2.grid()
-                ax2.plot(batch[i, :, 1])
-                ax2.set_title(f"{batch_labels[i]}")
-                ax2.set_xlim(left=-2, right=window_size-1+2)
-                ax2.set_ylim(bottom=ax2.get_ylim()[0]-2, top=ax2.get_ylim()[1]+2)
-                
-                #ax1
-                ax1.cla()
-                ax1.grid()
-                ax1.plot(data["close"])
-                ax1.plot(labels["hold_price"], marker="o", linestyle="", color="gray")
-                ax1.plot(labels["buy_price"], marker="o", linestyle="", color="green")
-                ax1.plot(labels["sell_price"], marker="o", linestyle="", color="red")
-                ax1.vlines(x=[index, index+window_size-1], ymin=minimum, ymax=maximum, color="red")
-                ax1.set_xlim(left=index-2, right=index+window_size-1+2)
-                ax1.set_ylim(bottom=ax2.get_ylim()[0], top=ax2.get_ylim()[1])
-                fig.canvas.draw()
-                
-                plt.waitforbuttonpress()
+        return torch.tensor([train_labels.eq(0).sum(), train_labels.eq(1).sum(), train_labels.eq(2).sum()], dtype=torch.float64)
 
 class LiveDataBase():
 
