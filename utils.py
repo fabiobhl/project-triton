@@ -3,11 +3,6 @@ import numpy as np
 import datetime
 import time
 
-"""
-To-Do:
-    -test the calculate_profit function (not tested at all!)
-"""
-
 def read_config(path=None):
     """
     Function for reading in the config.json file

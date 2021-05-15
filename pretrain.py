@@ -25,10 +25,6 @@ from torch.utils.tensorboard import SummaryWriter
 from database import TrainDataBase, dbid
 from performance_analytics import PerformanceAnalytics
 
-"""
-ToDo:
-"""
-
 #definition of the network
 class NetworkStateful(nn.Module):
 
