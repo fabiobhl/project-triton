@@ -95,6 +95,6 @@ def smoothing_extrema_labeling(database, window_length, poly_order, min_order, m
     return specific_profit
     
 if __name__ == "__main__":
-    db = DataBase(path="./databases/eth")
+    db = DataBase(path="./databases/ethtest")
 
     smoothing_extrema_labeling(database=db, window_length=21, poly_order=3, min_order=5, max_order=5)
