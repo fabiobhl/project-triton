@@ -27,6 +27,7 @@ from performance_analytics import PerformanceAnalytics
 
 """
 ToDo:
+    -"duplicating" balancing method
 """
 
 #definition of the network
@@ -147,9 +148,6 @@ class RunManager():
         self.tb = SummaryWriter(log_dir=f"{self.path}/Run{self.run_count}")
         self.tb.add_graph(model, input_to_model=example_data)
 
-        #register the end_run funtion, to run as soon as this manager goes out of scope
-        atexit.register(self.end_run)
-
     def end_run(self):
         #save the hyperparameters
         metrics = {
@@ -190,7 +188,7 @@ class RunManager():
         #track train num correct
         self.epoch_train_num_correct += self._get_num_correct(preds, labels)
 
-    def log_testing(self, num_test_samples, performance_data=None, trading_activity_interval=(60,120)): 
+    def log_testing(self, num_test_samples, performance_data=None, trading_activity_interval=(500,560)): 
         #calculate the metrics
         loss = (self.epoch_test_loss/num_test_samples)*100
         accuracy = (self.epoch_test_num_correct/num_test_samples) * 100
@@ -530,6 +528,9 @@ class Experiment():
         #save the scaler
         joblib.dump(value=tdb.scaler, filename=f"{self.path}/Run{self.run_count}/scaler.joblib")
 
+        #end the run in the runmanager
+        runman.end_run()
+
     def start(self):
         for index, run in enumerate(self.runs):
             #named tuple for printing
@@ -545,9 +546,9 @@ class Experiment():
 
 if __name__ == "__main__":
     MHP_space = {
-        "hidden_size": [10],
-        "num_layers": [2],
-        "lr": [0.01],
+        "hidden_size": [10, 20],
+        "num_layers": [2, 5],
+        "lr": [0.01, 0.005],
         "epochs": [10]
     }
 
@@ -555,8 +556,8 @@ if __name__ == "__main__":
         "candlestick_interval": ["5m"],
         "derived": [True],
         "features": [["close", "open", "high", "low", "volume", "trend_macd", "trend_ema_slow", "trend_adx", "momentum_rsi", "momentum_kama", "trend_psar_up_indicator", "trend_psar_down_indicator", "volatility_bbhi", "volatility_bbli", "volatility_kchi", "volatility_kcli", "volatility_ui"]],
-        "batch_size": [20],
-        "window_size": [200],
+        "batch_size": [10, 30, 100],
+        "window_size": [200, 400, 100],
         "labeling_method": ["smoothing_extrema_labeling"],
         "scaling_method": ["global"],
         "test_percentage": [0.2],
@@ -589,7 +590,7 @@ if __name__ == "__main__":
                      performanceanalytics_database_path="./databases/ethtest",
                      network=Network,
                      device=None,
-                     identifier="testeth4",
+                     identifier="testeth5",
                      torch_seed=None,
                      checkpointing=True)
     
