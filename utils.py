@@ -2,6 +2,7 @@ import json
 import numpy as np
 import datetime
 import time
+from enum import Enum
 
 def read_config(path=None):
     """
@@ -156,6 +157,94 @@ def timer(candlestick_interval):
         time.sleep(1)
     while datetime.datetime.now().minute % minute != 0:
         time.sleep(1)
+
+def floor_timeinterval(date, candlestick_interval):
+
+    if candlestick_interval == "1m":
+        date = datetime.datetime(year=date.year, month=date.month, day=date.day, hour=date.hour, minute=date.minute)
+
+    elif candlestick_interval == "3m":
+        date = datetime.datetime(year=date.year, month=date.month, day=date.day, hour=date.hour, minute=date.minute)
+        delta = datetime.timedelta(minutes=date.minute%3)
+        date -= delta
+
+    elif candlestick_interval == "5m":
+        date = datetime.datetime(year=date.year, month=date.month, day=date.day, hour=date.hour, minute=date.minute)
+        delta = datetime.timedelta(minutes=date.minute%5)
+        date -= delta
+
+    elif candlestick_interval == "15m":
+        date = datetime.datetime(year=date.year, month=date.month, day=date.day, hour=date.hour, minute=date.minute)
+        delta = datetime.timedelta(minutes=date.minute%15)
+        date -= delta
+    
+    elif candlestick_interval == "30m":
+        date = datetime.datetime(year=date.year, month=date.month, day=date.day, hour=date.hour, minute=date.minute)
+        delta = datetime.timedelta(minutes=date.minute%30)
+        date -= delta
+
+    elif candlestick_interval == "1h":
+        date = datetime.datetime(year=date.year, month=date.month, day=date.day, hour=date.hour)
+
+    elif candlestick_interval == "4h":
+        date = datetime.datetime(year=date.year, month=date.month, day=date.day, hour=date.hour)
+        delta = datetime.timedelta(hours=date.hour%4)
+        date -= delta
+
+    elif candlestick_interval == "1d":
+        date = datetime.datetime(year=date.year, month=date.month, day=date.day)
+
+    else:
+        raise Exception("Your chosen candlestick_interval for flooring this date has not been implemented yet")
+
+    return date
+
+def ceil_timeinterval(date, candlestick_interval):
+    
+    if candlestick_interval == "1m":
+        date = datetime.datetime(year=date.year, month=date.month, day=date.day, hour=date.hour, minute=date.minute)
+        delta = datetime.timedelta(minutes=1)
+        date += delta
+
+    elif candlestick_interval == "3m":
+        date = datetime.datetime(year=date.year, month=date.month, day=date.day, hour=date.hour, minute=date.minute)
+        delta = datetime.timedelta(minutes=3 - date.minute%3)
+        date += delta
+
+    elif candlestick_interval == "5m":
+        date = datetime.datetime(year=date.year, month=date.month, day=date.day, hour=date.hour, minute=date.minute)
+        delta = datetime.timedelta(minutes=5 - date.minute%5)
+        date += delta
+
+    elif candlestick_interval == "15m":
+        date = datetime.datetime(year=date.year, month=date.month, day=date.day, hour=date.hour, minute=date.minute)
+        delta = datetime.timedelta(minutes=15 - date.minute%15)
+        date += delta
+    
+    elif candlestick_interval == "30m":
+        date = datetime.datetime(year=date.year, month=date.month, day=date.day, hour=date.hour, minute=date.minute)
+        delta = datetime.timedelta(minutes=30 - date.minute%30)
+        date += delta
+
+    elif candlestick_interval == "1h":
+        date = datetime.datetime(year=date.year, month=date.month, day=date.day, hour=date.hour)
+        delta = datetime.timedelta(hours=1)
+        date += delta
+
+    elif candlestick_interval == "4h":
+        date = datetime.datetime(year=date.year, month=date.month, day=date.day, hour=date.hour)
+        delta = datetime.timedelta(hours=4 - date.hour%4)
+        date += delta
+
+    elif candlestick_interval == "1d":
+        date = datetime.datetime(year=date.year, month=date.month, day=date.day)
+        delta = datetime.timedelta(days=1)
+        date += delta
+
+    else:
+        raise Exception("Your chosen candlestick_interval for flooring this date has not been implemented yet")
+
+    return date
 
 if __name__ == "__main__":
     pass

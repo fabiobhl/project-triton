@@ -729,4 +729,4 @@ class LiveDataBase():
         return instance
 
 if __name__ == "__main__":
-    DataBase.create(save_path="./databases/test", symbol="ETHUSDT", date_span=(datetime.date(2021, 3, 1), datetime.date(2021, 4, 30)), candlestick_intervals=["5m", "15m"])
+    DataBase.create(save_path="./databases/eth2", symbol="ETHUSDT", date_span=(datetime.date(2020, 1, 1), datetime.date(2021, 1, 1)), candlestick_intervals=["5m", "15m"])
