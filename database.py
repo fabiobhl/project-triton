@@ -4,29 +4,19 @@ import atexit
 import datetime
 import os
 import warnings
-import time
-import sys
-import uuid
-import shutil
 import math
+import shutil
 
 #external libraries
 from binance.client import Client
 import pandas as pd
-import numpy as np
 import ta
 from sklearn import preprocessing
-from matplotlib import pyplot as plt
 import torch
 import joblib
 
 #external methods
 from utils import read_config, rolling_window, read_json
-"""
-ToDo:
-    -implement full candlestick_interval choosing: database.create(), labeling imports/creationgs, test everything
-    -implement scaling every window by itself (more accurate to usecase)
-"""
 
 class dbid():
     """
@@ -87,30 +77,80 @@ class DataBase():
             -index[string, list]:   Generally: [candlestick_interval, list of features]. To access the whole dataframe only specify the candlestick_interval you want e.g. db["5m"].
                                     To access only one feature specify the datatype and the feature you want e.g. db["5m", "close"]
                                     To access multiple features specify the datatype and a list of features you want e.g. db["5m", ["close", "open"]]
-
         Return:
             -data[pd.DataFrame]:    Returns always a DataFrame in the shape (rows, number of specified features) 
         """
-        #access whole dataframe of certain datatype
+        #set the path
+        if type(index) == tuple:
+            path = f"{self.path}/{index[0]}" 
+        elif type(index) == str:
+            path = f"{self.path}/{index}"
+        else:
+            raise Exception("Your chosen index is not valid")
+
+        #check if path is available
+        if not os.path.isdir(path):
+            raise Exception("Your chosen kline-interval is not available")
+
+        #access whole dataframe of certain kline-interval
         if type(index) == str:
             #load in the data and return
             try:
-                data = pd.read_csv(filepath_or_buffer=f"{self.path}/{index}", index_col="index")
+                data = pd.read_csv(filepath_or_buffer=f"{path}/{index}", index_col="index")
                 
                 #convert the date columns
                 data["close_time"]= pd.to_datetime(data["close_time"])
                 data["open_time"]= pd.to_datetime(data["open_time"])
                 
                 return data
-            
-            except FileNotFoundError:
-                raise Exception("Your chosen datatype is not available in this DataBase")
-            
-        #access one column of a dataframe of certain datatype
-        elif type(index) == tuple and len(index) == 2 and type(index[0]) == str and type(index[1]) == str:
-            #load in the data and return
+
+            except:
+                raise Exception("Your chosen kline-interval is not available in this DataBase")
+
+        #access all the labels
+        elif type(index) == tuple and len(index) == 2 and type(index[0]) == str and index[1] == "labels":
             try:
-                data = pd.read_csv(filepath_or_buffer=f"{self.path}/{index[0]}", usecols=[index[1]])
+                #get all the label names
+                label_names = next(os.walk(f"{path}/labels"))[1]
+
+                #load in all the labels
+                labels = pd.DataFrame()
+                for label_name in label_names:
+                    df = pd.read_csv(filepath_or_buffer=f"{path}/labels/{label_name}/labels.csv", header=None, index_col=0, names=["index", "labels"])
+                    labels[label_name] = df["labels"]
+                
+                return labels
+            except:
+                raise Exception("There are no labels in your database")
+
+        #access one label
+        elif type(index) == tuple and len(index) == 3 and type(index[0]) == str and index[1] == "labels" and type(index[2]) == str:
+            try:
+                #load in the labels
+                labels = pd.read_csv(filepath_or_buffer=f"{path}/labels/{index[2]}/labels.csv", header=None, index_col=0, names=["index", index[2]])
+                return labels
+            
+            except:
+                raise Exception("Your chosen label-type is not available")
+        
+        #access a list of labels
+        elif type(index) == tuple and len(index) == 3 and type(index[0]) == str and index[1] == "labels" and type(index[2]) == list:
+            try:
+                #load in the labels
+                labels = pd.DataFrame()
+                for label_name in index[2]:
+                    df = pd.read_csv(filepath_or_buffer=f"{path}/labels/{label_name}/labels.csv", header=None, index_col=0, names=["index", label_name])
+                    labels[label_name] = df[label_name]
+
+                return labels[index[2]]
+
+            except:
+                raise Exception("Your chosen label-type is not available")
+
+        #access one feature of a kline-interval
+        elif type(index) == tuple and len(index) == 2 and type(index[0]) == str and type(index[1]) == str:
+            try:
+                data = pd.read_csv(filepath_or_buffer=f"{path}/{index[0]}", usecols=[index[1]])
                 
                 #convert the date columns
                 if "close_time" in data.columns:
@@ -120,14 +160,13 @@ class DataBase():
 
                 return data
             
-            except FileNotFoundError:
-                raise Exception("Your chosen datatype is not available in this DataBase")
+            except:
+                raise Exception("Your chosen feature is not available in this DataBase")
             
-        #access list of columns of a dataframe of certain datatype
+        #access list of features of a kline-interval
         elif type(index) == tuple and len(index) == 2 and type(index[0]) == str and type(index[1]) == list:
-            #load in the data and return
             try:
-                data = pd.read_csv(filepath_or_buffer=f"{self.path}/{index[0]}", usecols=index[1])
+                data = pd.read_csv(filepath_or_buffer=f"{path}/{index[0]}", usecols=index[1])
                 
                 #convert the date columns
                 if "close_time" in data.columns:
@@ -137,91 +176,25 @@ class DataBase():
 
                 return data[index[1]]
             
-            except FileNotFoundError:
-                raise Exception("Your chosen datatype is not available in this DataBase")
+            except:
+                raise Exception("One/multiple of your chosen feature/s is/are not available in this DataBase")
         
         #throw error on all other accesses
         else:
             raise Exception("Your index is not possible, please check your index and the documentation on the DataBase object")
-
-    def get_labels(self, labeling_method):
-        """
-        Description:
-            Method for accessing labels (only the indexlables) of the database. The access is direct from the harddrive (slower but more memory efficient)
-        Arguments:
-            -labeling_method[string]:       The labels of which labelingmethod you want. (Needs to be applied to this database already!)
-        Return:
-            -labels[pd.DataFrame]:          Returns always a DataFrame in the shape (rows, 1) 
-        """
-        #check that labeling_method is a string and exists
-        if type(labeling_method) == str and os.path.isdir(f"{self.path}/labels/{labeling_method}"):
-            pass
-        else:
-            raise Exception("Your chosen labelingmethod is not available/has not been applied yet")
-
-        labels = pd.read_csv(filepath_or_buffer=f"{self.path}/labels/{labeling_method}/labels.csv", header=None, index_col=0, names=["index", "labels"])
-
-        return labels
-
-    def get_extended_labels(self, labeling_method):
-        """
-        Description:
-            Method for accessing labels and the corresponding price levels per label of the database. The access is direct from the harddrive (slower but more memory efficient)
-        Arguments:
-            -labeling_method[string]:       The labels of which labelingmethod you want. (Needs to be applied to this database already!)
-        Return:
-            -labels[pd.DataFrame]:          Returns always a DataFrame in the shape (rows, 5) where the columns are:    "close":        The normal close prices
-                                                                                                                        "labels":       The labels in indexlabel form
-                                                                                                                        "hold_price":   The price of the close price where the action is hold
-                                                                                                                        "buy_price":    The price of the close price where the action is buy
-                                                                                                                        "sell_price":   The price of the close price where the action is sell
-        """
-        #check that labeling_method is a string and exists
-        if type(labeling_method) == str and os.path.isdir(f"{self.path}/labels/{labeling_method}"):
-            pass
-        else:
-            raise Exception("Your chosen labelingmethod is not available/has not been applied yet")
-
-        labels = pd.read_csv(filepath_or_buffer=f"{self.path}/labels/{labeling_method}/complete_array.csv", header=None, index_col=0, names=["index", "close", "labels", "hold_price", "buy_price", "sell_price"])
-
-        return labels
     
-    @classmethod
-    def create(cls, save_path, symbol, date_span, candlestick_interval, config_path=None):
-        """
-        Description:
-            This method creates a DataBase-Folder at a given location with the specified data.           
-        Arguments:
-            -save_path[string]:             The location, where the folder gets created (Note: The name of the folder should be in the save_path e.g: "C:/.../desired_name")
-            -symbol[string]:                The Cryptocurrency you want to trade (Note: With accordance to the Binance API)
-            -date_span[tuple]:              Tuple of datetime.date objects in the form: (startdate, enddate)
-            -candlestick_interval[string]:  On what interval the candlestick data should be downloaded
-            -config_path[string]:           Path to the config file, if none is given, it is assumed that the config-file is in the same folder as the file this method gets called from
-        Return:
-            -DataBase[DataBase object]:     Returns the created DataBase object
-        """
-        #check if the specified directory already exists
-        if os.path.isdir(save_path):
-            raise Exception("Please choose a directory, that does not already exist")
-        
-        """
-        Download the data, add the tas
-        """
+    @staticmethod
+    def _download_kline_interval(symbol, start_date, end_date, candlestick_interval, config_path):   
         #read in the config
-        config = read_config()
+        config = read_config(path=config_path)
 
         #create the client
         client = Client(api_key=config["binance"]["key"], api_secret=config["binance"]["secret"])
 
-        #get the dates
-        startdate = date_span[0].strftime("%d %b, %Y")
-        enddate = date_span[1].strftime("%d %b, %Y")
-
         #download the data and safe it in a dataframe
-        print("Downloading...")
-        raw_data = client.get_historical_klines(symbol=symbol, interval=candlestick_interval, start_str=startdate, end_str=enddate)
+        print(f"Downloading {candlestick_interval} klines...")
+        raw_data = client.get_historical_klines(symbol=symbol, interval=candlestick_interval, start_str=start_date, end_str=end_date)
         data = pd.DataFrame(raw_data)
-        print("Finished downloading")
 
         #clean the dataframe
         data = data.astype(float)
@@ -249,20 +222,73 @@ class DataBase():
         #reset the index
         data.reset_index(inplace=True, drop=True)
 
+        return data
+
+    def add_candlestick_interval(self, candlestick_interval, config_path=None):
+        #check if interval already exists
+        if os.path.isdir(f"{self.path}/{candlestick_interval}"):
+            raise Exception("Your chosen candlestick_interval already exists")
+
+        #download interval
+        data = self._download_kline_interval(symbol=self.dbid["symbol"], start_date=self.dbid["date_range"][0], end_date=self.dbid["date_range"][1], candlestick_interval=candlestick_interval, config_path=config_path)
+
+        #create the directory
+        os.mkdir(f"{self.path}/{candlestick_interval}")
+
+        #save the data to csv's
+        data.to_csv(path_or_buf=f"{self.path}/{candlestick_interval}/{candlestick_interval}", index_label="index")
+
+    @classmethod
+    def create(cls, save_path, symbol, date_span, candlestick_intervals, config_path=None):
         """
-        create the directory and save the csv's
+        Description:
+            This method creates a DataBase-Folder at a given location with the specified data.           
+        Arguments:
+            -save_path[string]:             The location, where the folder gets created (Note: The name of the folder should be in the save_path e.g: "C:/.../desired_name")
+            -symbol[string]:                The Cryptocurrency you want to trade (Note: With accordance to the Binance API)
+            -date_span[tuple]:              Tuple of datetime.date objects in the form: (startdate, enddate)
+            -candlestick_interval[string]:  On what interval the candlestick data should be downloaded
+            -config_path[string]:           Path to the config file, if none is given, it is assumed that the config-file is in the same folder as the file this method gets called from
+        Return:
+            -DataBase[DataBase object]:     Returns the created DataBase object
         """
+        #check if the specified directory already exists
+        if os.path.isdir(save_path):
+            raise Exception("Please choose a directory, that does not already exist")
+        
         #create the directory
         os.mkdir(save_path)
 
-        #save the data to csv's
-        data.to_csv(path_or_buf=f"{save_path}/{candlestick_interval}", index_label="index")
+        #get the dates and format them
+        startdate = date_span[0].strftime("%d %b, %Y")
+        enddate = date_span[1].strftime("%d %b, %Y")
+
+        """
+        Download the datas, add the tas and save it to directory
+        """
+        try:
+            for candlestick_interval in candlestick_intervals:
+                #download the data
+                data = cls._download_kline_interval(symbol=symbol, start_date=startdate, end_date=enddate, candlestick_interval=candlestick_interval, config_path=config_path)
+
+                #create the directory
+                os.mkdir(f"{save_path}/{candlestick_interval}")
+
+                #save the data to csv's
+                data.to_csv(path_or_buf=f"{save_path}/{candlestick_interval}/{candlestick_interval}", index_label="index")
+        except Exception as e:
+            shutil.rmtree(save_path)
+            raise e
         
-        #creating the dbid
+        print("Finished downloading")
+        
+        """
+        Creating the dbid and saving it
+        """
+        #create the dbid
         dbid = {
             "symbol": symbol,
-            "date_range": (startdate, enddate),
-            "candlestick_interval": candlestick_interval
+            "date_range": (startdate, enddate)
         }
 
         #save the dbid
@@ -443,7 +469,7 @@ class TrainDataBase(DataBase):
             -nothing
         """
         #get the labels
-        labels = self.get_labels(self.DHP["labeling_method"]).to_numpy()
+        labels = self[self.DHP["candlestick_interval"], "labels", self.DHP["labeling_method"]].to_numpy()
 
         #select the features
         data = self[self.DHP["candlestick_interval"], self.DHP["features"]]
@@ -465,6 +491,80 @@ class TrainDataBase(DataBase):
         train_labels = torch.as_tensor(train_labels_array).squeeze()
 
         return torch.tensor([train_labels.eq(0).sum(), train_labels.eq(1).sum(), train_labels.eq(2).sum()], dtype=torch.float64)
+
+class PerformanceAnalyticsDataBase(DataBase):
+
+    def __init__(self, database_path, HP, scaler, additional_window_size=100):
+        #calling the inheritance
+        super().__init__(database_path)
+
+        #save variables
+        self.database_path = database_path
+        self.HP = HP
+        self.additional_window_size = additional_window_size
+        self.iterator = 0
+
+        #defining initial data
+        self.data = self[self.HP["candlestick_interval"], ["open_time", "open", "high", "low", "close", "volume", "close_time"]].iloc[self.iterator: self.iterator + self.HP["window_size"]+additional_window_size,:]
+
+        #get the length of the undelying data
+        self.data_length = self[self.HP["candlestick_interval"], "close_time"].shape[0]
+
+        #save the scaler
+        if scaler is not None and type(scaler) == str:
+            #load in the scaler
+            self.scaler = joblib.load(filename=scaler)
+        elif scaler is not None and isinstance(scaler, preprocessing.MaxAbsScaler):
+            self.scaler = scaler
+        else:
+            raise Exception("Please provide either a scaler location or a scaler instance")
+
+    def update_data(self): 
+        #update the iterator
+        self.iterator += 1
+
+        #check for boundary
+        if self.iterator + self.HP["window_size"]+100 >= self.data_length:
+            return False 
+
+        #update the data
+        self.data = self[self.HP["candlestick_interval"], ["open_time", "open", "high", "low", "close", "volume", "close_time"]].iloc[self.iterator: self.iterator + self.HP["window_size"]+self.additional_window_size,:].reset_index(drop=True)
+
+        return True
+    
+    def get_state(self, device="cpu"):
+        #get the data
+        data = self.data.copy()
+
+        #add the technical analysis data
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore")
+            data = ta.add_all_ta_features(data, open='open', high="high", low="low", close="close", volume="volume", fillna=True)
+        #select the features
+        data = data[self.HP["features"]]                                                    
+
+        #prep the data (data is now a numpy array)
+        data, _ = TrainDataBase._raw_data_prep(data=data, derive=self.HP["derived"], scaling_method=self.HP["scaling_method"], preloaded_scaler=self.scaler)
+
+        #get correct size
+        data = data[-self.HP["window_size"]:, :]
+
+        #convert to pytorch tensor and move to device
+        data = torch.tensor(data, device=device)
+
+        #add the batch dimension
+        data = data.unsqueeze(dim=0)
+        
+        return data
+
+    def get_time(self):
+        return self.data["close_time"].iloc[-1]
+
+    def get_price(self):
+        return self.data["close"].iloc[-1]
+
+    def get_total_iterations(self):
+        return self.data_length - self.HP["window_size"] - self.additional_window_size
 
 class LiveDataBase():
 
@@ -628,79 +728,5 @@ class LiveDataBase():
         instance = cls(symbol=symbol, info_path=info_path, config_path=config_path)
         return instance
 
-class PerformanceAnalyticsDataBase(DataBase):
-
-    def __init__(self, database_path, HP, scaler, additional_window_size=100):
-        #calling the inheritance
-        super().__init__(database_path)
-
-        #save variables
-        self.database_path = database_path
-        self.HP = HP
-        self.additional_window_size = additional_window_size
-        self.iterator = 0
-
-        #defining initial data
-        self.data = self[self.HP["candlestick_interval"], ["open_time", "open", "high", "low", "close", "volume", "close_time"]].iloc[self.iterator: self.iterator + self.HP["window_size"]+additional_window_size,:]
-
-        #get the length of the undelying data
-        self.data_length = self[self.HP["candlestick_interval"], "close_time"].shape[0]
-
-        #save the scaler
-        if scaler is not None and type(scaler) == str:
-            #load in the scaler
-            self.scaler = joblib.load(filename=scaler)
-        elif scaler is not None and isinstance(scaler, preprocessing.MaxAbsScaler):
-            self.scaler = scaler
-        else:
-            raise Exception("Please provide either a scaler location or a scaler instance")
-
-    def update_data(self): 
-        #update the iterator
-        self.iterator += 1
-
-        #check for boundary
-        if self.iterator + self.HP["window_size"]+100 >= self.data_length:
-            return False 
-
-        #update the data
-        self.data = self[self.HP["candlestick_interval"], ["open_time", "open", "high", "low", "close", "volume", "close_time"]].iloc[self.iterator: self.iterator + self.HP["window_size"]+self.additional_window_size,:].reset_index(drop=True)
-
-        return True
-    
-    def get_state(self, device="cpu"):
-        #get the data
-        data = self.data.copy()
-
-        #add the technical analysis data
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore")
-            data = ta.add_all_ta_features(data, open='open', high="high", low="low", close="close", volume="volume", fillna=True)
-        #select the features
-        data = data[self.HP["features"]]                                                    
-
-        #prep the data (data is now a numpy array)
-        data, _ = TrainDataBase._raw_data_prep(data=data, derive=self.HP["derived"], scaling_method=self.HP["scaling_method"], preloaded_scaler=self.scaler)
-
-        #get correct size
-        data = data[-self.HP["window_size"]:, :]
-
-        #convert to pytorch tensor and move to device
-        data = torch.tensor(data, device=device)
-
-        #add the batch dimension
-        data = data.unsqueeze(dim=0)
-        
-        return data
-
-    def get_time(self):
-        return self.data["close_time"].iloc[-1]
-
-    def get_price(self):
-        return self.data["close"].iloc[-1]
-
-    def get_total_iterations(self):
-        return self.data_length - self.HP["window_size"] - self.additional_window_size
-
 if __name__ == "__main__":
-    DataBase.create(save_path="./databases/ethtest", symbol="ETHUSDT", date_span=(datetime.date(2021, 3, 1), datetime.date(2021, 4, 30)), candlestick_interval="5m")
+    DataBase.create(save_path="./databases/eth2", symbol="ETHUSDT", date_span=(datetime.date(2020, 1, 1), datetime.date(2021, 1, 1)), candlestick_intervals=["5m", "15m"])
