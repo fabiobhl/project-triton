@@ -555,7 +555,7 @@ if __name__ == "__main__":
     DHP_space = {
         "candlestick_interval": ["5m"],
         "derived": [True],
-        "features": [["close", "open", "high", "low", "volume", "trend_macd", "trend_ema_slow", "trend_adx", "momentum_rsi", "momentum_kama", "trend_psar_up_indicator", "trend_psar_down_indicator", "volatility_bbhi", "volatility_bbli", "volatility_kchi", "volatility_kcli", "volatility_ui"]],
+        "features": [["close", "open", "high", "low", "volume", "trend_macd", "trend_ema_slow", "trend_adx", "momentum_rsi", "momentum_kama"]],
         "batch_size": [10, 30, 100],
         "window_size": [200, 400, 100],
         "labeling_method": ["smoothing_extrema_labeling"],
@@ -574,9 +574,9 @@ if __name__ == "__main__":
     DHP_space2 = {
         "candlestick_interval": ["5m"],
         "derived": [True],
-        "features": [["close", "open", "high", "low", "volume", "trend_macd", "trend_ema_slow", "trend_adx", "momentum_rsi", "momentum_kama", "trend_psar_up_indicator", "trend_psar_down_indicator", "volatility_bbhi", "volatility_bbli", "volatility_kchi", "volatility_kcli", "volatility_ui"]],
+        "features": [["close", "open", "high", "low", "volume", "trend_macd", "trend_ema_slow", "trend_adx", "momentum_rsi", "momentum_kama"]],
         "batch_size": [100],
-        "window_size": [10],
+        "window_size": [100],
         "labeling_method": ["smoothing_extrema_labeling"],
         "scaling_method": ["global"],
         "test_percentage": [0.2],
@@ -584,14 +584,14 @@ if __name__ == "__main__":
     }
 
     exp = Experiment(path="./experiments",
-                     MHP_space=MHP_space,
-                     DHP_space=DHP_space,
+                     MHP_space=MHP_space2,
+                     DHP_space=DHP_space2,
                      train_database_path="./databases/eth",
                      performanceanalytics_database_path="./databases/ethtest",
                      network=Network,
                      device=None,
-                     identifier="testeth5",
-                     torch_seed=None,
+                     identifier="testseed_old",
+                     torch_seed=1,
                      checkpointing=True)
     
     exp.start()
