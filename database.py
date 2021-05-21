@@ -9,6 +9,7 @@ import shutil
 
 #external libraries
 from binance.client import Client
+import numpy as np
 import pandas as pd
 from pandas.core.frame import DataFrame
 import ta
@@ -18,6 +19,11 @@ import joblib
 
 #external methods
 from utils import read_config, rolling_window, read_json
+
+"""
+ToDo:
+    -make tdb._get_batches() faster/more effective
+"""
 
 class dbid():
     """
@@ -322,6 +328,7 @@ class TrainDataBase(DataBase):
 
         #safe the variables
         self.DHP = DHP
+
         #auto detection for device
         if device == None:
             self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -338,10 +345,10 @@ class TrainDataBase(DataBase):
             self.scaler = None
 
         #prepare the data
-        self.prepd_data, self.prepd_labels = self._prepare_data()
+        self.prepd_data, self.fixed_index = self._prepare_data()
 
-        #save data variables
-        self.windows_amount = self.prepd_data.shape[0] - self.DHP["window_size"] + 1
+        #calculate data variables
+        self.windows_amount = self.fixed_index.shape[0]
         self.batches_amount = math.floor(self.windows_amount/self.DHP["batch_size"])
         self.train_batches_amount = self.batches_amount - math.floor(self.batches_amount*self.DHP["test_percentage"])
         self.test_batches_amount = self.batches_amount - self.train_batches_amount
@@ -355,28 +362,20 @@ class TrainDataBase(DataBase):
         Return:
             -iterable_data[generator]:      Returns a generator on which you can call next() until it is empty (Note: Throws error!)
         """
+        #get the batchsize
+        bs = self.DHP["batch_size"]
+
         #create the index
         index = 0
-        label_index = self.DHP["window_size"] - 1
-
-        #get the dataslice length
-        data_slice_len = self.DHP["window_size"] + self.DHP["batch_size"] - 1
 
         for _ in range(self.train_batches_amount):
-            #get the data_slice
-            data_slice = self.prepd_data[index:index+data_slice_len, :].copy()
-
-            #roll the dataslice
-            windows = rolling_window(data_slice, self.DHP["window_size"])
-
-            #get the correct labels
-            labels = self.prepd_labels[label_index:label_index+self.DHP["batch_size"]]
+            #get the batch
+            batch, labels = self._get_batch(self.fixed_index[index:index + bs])
 
             #update indeces
-            index += self.DHP["batch_size"]
-            label_index += self.DHP["batch_size"]
+            index += bs
 
-            yield torch.tensor(windows, device=self.device), torch.tensor(labels, dtype=torch.long, device=self.device).squeeze()
+            yield torch.tensor(batch, device=self.device), torch.tensor(labels, dtype=torch.long, device=self.device).squeeze()
 
     def test(self):
         """
@@ -387,28 +386,20 @@ class TrainDataBase(DataBase):
         Return:
             -iterable_data[generator]:      Returns a generator on which you can call next() until it is empty (Note: Throws error!)
         """
-        #create the index
-        index = self.train_batches_amount*self.DHP["batch_size"]
-        label_index = self.DHP["window_size"] - 1 + self.train_batches_amount*self.DHP["batch_size"]
+        #get the batchsize
+        bs = self.DHP["batch_size"]
 
-        #get the dataslice length
-        data_slice_len = self.DHP["window_size"] + self.DHP["batch_size"] - 1
+        #create the index
+        index = self.train_batches_amount*bs
 
         for _ in range(self.test_batches_amount):
-            #get the data_slice
-            data_slice = self.prepd_data[index:index+data_slice_len, :].copy()
-
-            #roll the dataslice
-            windows = rolling_window(data_slice, self.DHP["window_size"])
-
-            #get the correct labels
-            labels = self.prepd_labels[label_index:label_index+self.DHP["batch_size"]]
+            #get the batch
+            batch, labels = self._get_batch(self.fixed_index[index:index + bs])
 
             #update indeces
-            index += self.DHP["batch_size"]
-            label_index += self.DHP["batch_size"]
+            index += bs
 
-            yield torch.tensor(windows, device=self.device), torch.tensor(labels, dtype=torch.long, device=self.device).squeeze()
+            yield torch.tensor(batch, device=self.device), torch.tensor(labels, dtype=torch.long, device=self.device).squeeze()
 
     @staticmethod
     def _raw_data_prep(data, derive, scaling_method, preloaded_scaler=None):
@@ -434,11 +425,10 @@ class TrainDataBase(DataBase):
         #derive the data
         if derive:
             data = derive_data(data)
-            data = data.iloc[1:,:]
         
-        #convert data to numpy array
-        data = data.to_numpy()
-
+        #remove first row
+        data = data.iloc[1:,:]
+        
         #scale
         scaler = None
         if scaling_method == "global":
@@ -470,7 +460,7 @@ class TrainDataBase(DataBase):
             -nothing
         """
         #get the labels
-        labels = self[self.DHP["candlestick_interval"], "labels", self.DHP["labeling_method"]].to_numpy()
+        labels = self[self.DHP["candlestick_interval"], "labels", self.DHP["labeling_method"]]
 
         #select the features
         data = self[self.DHP["candlestick_interval"], self.DHP["features"]]
@@ -478,20 +468,79 @@ class TrainDataBase(DataBase):
         #data operations that can be made on the whole dataset
         data, scaler = self._raw_data_prep(data=data, derive=self.DHP["derived"], scaling_method=self.DHP["scaling_method"], preloaded_scaler=self.scaler)
 
-        #remove first label
+        #remove first row
         labels = labels[1:]
 
         #save the scaler parameters
         self.scaler = scaler
 
-        return data, labels
+        #combine data and labels
+        data["labels"] = labels
+
+        #reset the index
+        data.reset_index(inplace=True, drop=True)
+
+        #add the fixed index to data
+        data["fixed_index"] = [i for i in range(0,len(data))]
+
+        #create the fixed index
+        fixed_index = data["fixed_index"].iloc[self.DHP["window_size"]-1:].to_numpy()
+
+        #oversampling
+        if self.DHP["balancing_method"] == "oversampling":
+            #count the label occurences
+            hold_amount = (data["labels"] == 0).sum()
+            buy_amount = (data["labels"] == 1).sum()
+            sell_amount = (data["labels"] == 2).sum()
+
+            #calculate the oversampling factors
+            buy_oversampling = math.floor(hold_amount/buy_amount)
+            sell_oversampling = math.floor(hold_amount/sell_amount)
+
+            #create mask for oversampling
+            mask = (data["labels"].iloc[self.DHP["window_size"]-1:] == 0)*1 + (data["labels"].iloc[self.DHP["window_size"]-1:] == 1)*buy_oversampling + (data["labels"].iloc[self.DHP["window_size"]-1:] == 2)*sell_oversampling
+            mask = mask.to_numpy()
+
+            fixed_index = np.repeat(fixed_index, mask)
+        
+        #shuffling
+        if self.DHP["shuffle"] == "global":
+            #shuffle the fixed_index array
+            np.random.shuffle(fixed_index)
+
+        return data, fixed_index
+
+    def _get_window(self, fixed_index):
+        ws = self.DHP["window_size"]
+        #get the window
+        window = self.prepd_data.iloc[fixed_index-ws+1 : fixed_index+1, 0 : -2]
+
+        #get the label
+        label = self.prepd_data.iloc[fixed_index,-2]
+
+        return window, label
+
+    def _get_batch(self, fixed_index_list):
+        #lists to append to
+        labels = []
+        batch = []
+
+        #create array
+        fixed_index_list = np.array(fixed_index_list)
+
+        #local shuffling
+        if self.DHP["shuffle"] == "local":
+            np.random.shuffle(fixed_index_list)
+
+        for fixed_index in fixed_index_list:
+            window, label = self._get_window(fixed_index=fixed_index)
+            labels.append(label)
+            batch.append(window)
+
+        return np.array(batch), np.array(labels)
 
     def get_label_count(self):
-
-        train_labels_array = self.prepd_labels[self.DHP["window_size"] - 1: self.DHP["window_size"] - 1 + self.train_batches_amount*self.DHP["batch_size"]]
-        train_labels = torch.as_tensor(train_labels_array).squeeze()
-
-        return torch.tensor([train_labels.eq(0).sum(), train_labels.eq(1).sum(), train_labels.eq(2).sum()], dtype=torch.float64)
+        return torch.tensor([(self.prepd_data["labels"] == 0).sum(), (self.prepd_data["labels"] == 1).sum(), (self.prepd_data["labels"] == 2).sum()], dtype=torch.float64)
 
 class PerformanceAnalyticsDataBase(DataBase):
 
@@ -730,5 +779,24 @@ class LiveDataBase():
         return instance
 
 if __name__ == "__main__":
-    db = DataBase("./databases/ethtest")
-    db.add_candlestick_interval("15m")
+    import time
+    HP = {
+        "candlestick_interval": "5m",
+        "derived": True,
+        "features": ["close", "open", "high"],
+        "batch_size": 50,
+        "window_size": 5,
+        "labeling_method": "test",
+        "scaling_method": "global",
+        "test_percentage": 0.2,
+        "balancing_method": "criterion",
+        "shuffle": False
+    }
+
+    tdb = TrainDataBase(path="./databases/ethtest", DHP=HP)
+
+    start = time.time()
+    for batch, labels in tdb.train():
+        print(batch.shape)
+
+    print("Took us: ", time.time()-start)

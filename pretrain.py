@@ -545,6 +545,26 @@ class Experiment():
             print("-"*100)
 
 if __name__ == "__main__":
+    MHP_total = {
+        "hidden_size": [10, 100],
+        "num_layers": [2],
+        "lr": [0.01],
+        "epochs": [10]
+    }
+
+    DHP_total = {
+        "candlestick_interval": ["5m", "15m"],
+        "derived": [True, False],
+        "features": [["close", "open", "high", "low", "volume", "trend_macd", "trend_ema_slow", "trend_adx", "momentum_rsi", "momentum_kama"]],
+        "batch_size": [50, 100],
+        "window_size": [200],
+        "labeling_method": ["test", "test2"],
+        "scaling_method": ["global"],
+        "test_percentage": [0.2],
+        "balancing_method": ["criterion_weights", "oversampling", None],
+        "shuffle": ["global", "local", None]
+    }
+    
     MHP_space = {
         "hidden_size": [10, 100],
         "num_layers": [2],
@@ -561,7 +581,8 @@ if __name__ == "__main__":
         "labeling_method": ["test", "test2"],
         "scaling_method": ["global"],
         "test_percentage": [0.2],
-        "balancing_method": ["criterion_weights"]
+        "balancing_method": ["criterion_weights"],
+        "shuffle": [None]
     }
 
     MHP_space2 = {
@@ -577,21 +598,22 @@ if __name__ == "__main__":
         "features": [["close", "open", "high", "low", "volume", "trend_macd", "trend_ema_slow", "trend_adx", "momentum_rsi", "momentum_kama"]],
         "batch_size": [100],
         "window_size": [100],
-        "labeling_method": ["smoothing_extrema_labeling"],
+        "labeling_method": ["test"],
         "scaling_method": ["global"],
         "test_percentage": [0.2],
-        "balancing_method": ["criterion_weights"]
+        "balancing_method": ["criterion_weights"],
+        "shuffle": [None]
     }
 
     exp = Experiment(path="./experiments",
-                     MHP_space=MHP_space,
-                     DHP_space=DHP_space,
+                     MHP_space=MHP_space2,
+                     DHP_space=DHP_space2,
                      train_database_path="./databases/eth",
                      performanceanalytics_database_path="./databases/ethtest",
                      network=Network,
                      device=None,
-                     identifier="test6",
-                     torch_seed=None,
+                     identifier="seedtestnew",
+                     torch_seed=1,
                      checkpointing=True)
     
     exp.start()
