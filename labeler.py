@@ -23,7 +23,7 @@ import plotly.graph_objects as go
 """
 Variables
 """
-DATABASE_PATH = "./databases/eth2"
+DATABASE_PATH = "./databases/ethtest"
 
 
 

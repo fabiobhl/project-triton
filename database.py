@@ -10,6 +10,7 @@ import shutil
 #external libraries
 from binance.client import Client
 import pandas as pd
+from pandas.core.frame import DataFrame
 import ta
 from sklearn import preprocessing
 import torch
@@ -729,4 +730,5 @@ class LiveDataBase():
         return instance
 
 if __name__ == "__main__":
-    DataBase.create(save_path="./databases/eth2", symbol="ETHUSDT", date_span=(datetime.date(2020, 1, 1), datetime.date(2021, 1, 1)), candlestick_intervals=["5m", "15m"])
+    db = DataBase("./databases/ethtest")
+    db.add_candlestick_interval("15m")

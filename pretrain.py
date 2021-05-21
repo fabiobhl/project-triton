@@ -546,19 +546,19 @@ class Experiment():
 
 if __name__ == "__main__":
     MHP_space = {
-        "hidden_size": [10, 20],
-        "num_layers": [2, 5],
-        "lr": [0.01, 0.005],
+        "hidden_size": [10, 100],
+        "num_layers": [2],
+        "lr": [0.01],
         "epochs": [10]
     }
 
     DHP_space = {
-        "candlestick_interval": ["5m"],
+        "candlestick_interval": ["5m", "15m"],
         "derived": [True],
         "features": [["close", "open", "high", "low", "volume", "trend_macd", "trend_ema_slow", "trend_adx", "momentum_rsi", "momentum_kama"]],
-        "batch_size": [10, 30, 100],
-        "window_size": [200, 400, 100],
-        "labeling_method": ["smoothing_extrema_labeling"],
+        "batch_size": [50, 100],
+        "window_size": [200],
+        "labeling_method": ["test", "test2"],
         "scaling_method": ["global"],
         "test_percentage": [0.2],
         "balancing_method": ["criterion_weights"]
@@ -584,14 +584,14 @@ if __name__ == "__main__":
     }
 
     exp = Experiment(path="./experiments",
-                     MHP_space=MHP_space2,
-                     DHP_space=DHP_space2,
+                     MHP_space=MHP_space,
+                     DHP_space=DHP_space,
                      train_database_path="./databases/eth",
                      performanceanalytics_database_path="./databases/ethtest",
                      network=Network,
                      device=None,
-                     identifier="testseed_old",
-                     torch_seed=1,
+                     identifier="test6",
+                     torch_seed=None,
                      checkpointing=True)
     
     exp.start()
