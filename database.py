@@ -304,7 +304,7 @@ class DataBase():
         
         return cls(path=save_path)
 
-class TrainDataBase(DataBase):
+class TrainDataBase_old(DataBase):
     """
     Description:
         This Database can be used for supervised training of time-series models. You need a DataBase first with all the data.
@@ -538,6 +538,254 @@ class TrainDataBase(DataBase):
             batch.append(window)
 
         return np.array(batch), np.array(labels)
+    
+    def get_label_count(self):
+        return torch.tensor([(self.prepd_data["labels"] == 0).sum(), (self.prepd_data["labels"] == 1).sum(), (self.prepd_data["labels"] == 2).sum()], dtype=torch.float64)
+
+class TrainDataBase(DataBase):
+    """
+    Description:
+        This Database can be used for supervised training of time-series models. You need a DataBase first with all the data.
+    Arguments:
+        -path[string]:                  The path of your DataBase
+        -candlestick_interval[string]:  The candlestick interval you want to use for your training, (Note: According to the python-binance constants)
+        -derived[boolean]:              If you want your data to be derived choose True, if not choose False
+        -features[list]:                The features you want fo use for your training
+        -batch_size[int]:               The size of the batches
+        -window_size[int]:              The size of the rolling window
+        -labeling_method[string]:       What kind of labels you want to use (from what method the labels were created)
+        -scaling_method[string]:        What kind of scaling you want you can choose between:   "global":   The maximum of the whole dataset will correspond to: 1 and the minimum to -1
+                                                                                                "local":    The maximum of the window will correspond to: 1 and the minimum to -1
+                                                                                                "none":     There will be no scaling
+        -test_percentage[float]:        What percentage of your dataset should be used as tests
+        -device[torch.device]:          The device you want your data on, if set to None then the device gets autodetected (utilises cuda if it is available)
+    """
+    def __init__(self, path, DHP, scaler=None, device=None):
+        #calling the inheritance
+        super().__init__(path)
+
+        #safe the variables
+        self.DHP = DHP
+
+        #auto detection for device
+        if device == None:
+            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        else:
+            self.device = torch.device(device)
+
+        #save the scaler
+        if scaler is not None and type(scaler) == str:
+            #load in the scaler
+            self.scaler = joblib.load(filename=scaler)
+        elif scaler is not None and isinstance(scaler, preprocessing.MaxAbsScaler):
+            self.scaler = scaler
+        else:
+            self.scaler = None
+
+        #prepare the data
+        self.prepd_data, self.labels, self.fixed_index = self._prepare_data()
+
+        #calculate data variables
+        self.windows_amount = self.fixed_index.shape[0]
+        self.batches_amount = math.floor(self.windows_amount/self.DHP["batch_size"])
+        self.train_batches_amount = self.batches_amount - math.floor(self.batches_amount*self.DHP["test_percentage"])
+        self.test_batches_amount = self.batches_amount - self.train_batches_amount
+
+    def train(self):
+        """
+        Description:
+            Method for training your nn.
+        Arguments:
+            -none
+        Return:
+            -iterable_data[generator]:      Returns a generator on which you can call next() until it is empty (Note: Throws error!)
+        """
+        #get the batchsize
+        bs = self.DHP["batch_size"]
+
+        #create the index
+        index = 0
+
+        for _ in range(self.train_batches_amount):
+            #get the batch
+            batch, labels = self._get_batch(self.fixed_index[index:index + bs])
+
+            #update indeces
+            index += bs
+
+            yield torch.tensor(batch, device=self.device), torch.tensor(labels, dtype=torch.long, device=self.device).squeeze()
+
+    def test(self):
+        """
+        Description:
+            Method for testing your neural network.
+        Arguments:
+            -none
+        Return:
+            -iterable_data[generator]:      Returns a generator on which you can call next() until it is empty (Note: Throws error!)
+        """
+        #get the batchsize
+        bs = self.DHP["batch_size"]
+
+        #create the index
+        index = self.train_batches_amount*bs
+
+        for _ in range(self.test_batches_amount):
+            #get the batch
+            batch, labels = self._get_batch(self.fixed_index[index:index + bs])
+
+            #update indeces
+            index += bs
+
+            yield torch.tensor(batch, device=self.device), torch.tensor(labels, dtype=torch.long, device=self.device).squeeze()
+
+    @staticmethod
+    def _raw_data_prep(data, derive, scaling_method, preloaded_scaler=None):
+        
+        def derive_data(data):
+            """
+            Method for deriving the data: from absolute values to relative values
+            """
+
+            pct = ["open", "high", "low", "close", "volume_nvi", "volume_vwap", "volatility_atr", "volatility_bbm", "volatility_bbh", "volatility_bbl", "volatility_bbw", "volatility_kcc", "volatility_kch", "volatility_kcl", "volatility_kcw", "volatility_dcl", "volatility_dch", "volatility_dcm", "volatility_dcw", "trend_sma_fast", "trend_sma_slow", "trend_ema_fast", "trend_ema_slow", "trend_mass_index", "trend_ichimoku_conv", "trend_ichimoku_base", "trend_ichimoku_a", "trend_ichimoku_b", "trend_visual_ichimoku_a", "trend_visual_ichimoku_b", "trend_psar_up", "trend_psar_down", "momentum_uo", "momentum_kama"]
+            diff = ["volume", "volume_adi", "volume_obv", "volume_mfi", "volatility_ui", "trend_adx", "momentum_rsi", "momentum_wr", "others_cr"]
+            none = ["volume_cmf", "volume_fi", "volume_em", "volume_sma_em", "volume_vpt", "volatility_bbhi", "volatility_bbli", "volatility_bbp", "volatility_kcp", "volatility_kchi", "volatility_kcli", "volatility_dcp", "trend_macd", "trend_macd_signal", "trend_macd_diff", "trend_adx_pos", "trend_adx_neg", "trend_vortex_ind_pos", "trend_vortex_ind_neg", "trend_vortex_ind_diff", "trend_trix", "trend_cci", "trend_dpo", "trend_kst", "trend_kst_sig", "trend_kst_diff", "trend_aroon_up", "trend_aroon_down", "trend_aroon_ind", "trend_psar_up_indicator", "trend_psar_down_indicator", "trend_stc", "momentum_stoch_rsi", "momentum_stoch_rsi_k", "momentum_stoch_rsi_d", "momentum_tsi", "momentum_stoch", "momentum_stoch_signal", "momentum_ao", "momentum_roc", "momentum_ppo", "momentum_ppo_signal", "momentum_ppo_hist", "others_dr", "others_dlr"]
+
+            #extract the chosen features
+            pct_features = [x for x in pct if x in data.columns]
+            diff_features = [x for x in diff if x in data.columns]
+
+            data[pct_features] = data[pct_features].pct_change()
+            data[diff_features] = data[diff_features].diff()
+
+            return data
+        
+        #derive the data
+        if derive:
+            data = derive_data(data)
+        
+        #remove first row
+        data = data.iloc[1:,:]
+        
+        #scale
+        scaler = None
+        if scaling_method == "global":
+            if preloaded_scaler is not None:
+                #set the scaler
+                scaler = preloaded_scaler
+                scaler.copy = False
+            else:
+                #create the scaler
+                scaler = preprocessing.MaxAbsScaler(copy=False)
+
+                #fit scaler to data
+                scaler.fit(data)
+            
+            #fit the data
+            scaler.transform(data)
+        else:
+            raise Exception("Your chosen scaling method does not exist")
+
+        return data, scaler
+
+    def _prepare_data(self):
+        """
+        Description:
+            Method for preparing the data (rolling, scaling, batching, ...)
+        Arguments:
+            -none
+        Return:
+            -nothing
+        """
+        #get the labels
+        labels = self[self.DHP["candlestick_interval"], "labels", self.DHP["labeling_method"]]
+
+        #select the features
+        data = self[self.DHP["candlestick_interval"], self.DHP["features"]]
+
+        #data operations that can be made on the whole dataset
+        data, scaler = self._raw_data_prep(data=data, derive=self.DHP["derived"], scaling_method=self.DHP["scaling_method"], preloaded_scaler=self.scaler)
+
+        #remove first row from labels (because of derivation)
+        labels = labels[1:]
+
+        #add labels to datafame
+        data["labels"] = labels 
+
+        #reset the index
+        data.reset_index(inplace=True, drop=True)
+
+        #safe data for debuging purposes
+        self.dataframe = data
+
+        #save the scaler parameters
+        self.scaler = scaler
+
+        #create the flat data array
+        flat_data = data.to_numpy().flatten()
+        #create the flat labels array
+        labels = labels.to_numpy().flatten()
+
+        #create the fixed index array
+        fixed_index = np.arange(self.DHP["window_size"]-1, data.shape[0])
+
+        #oversampling
+        if self.DHP["balancing_method"] == "oversampling":
+            #count the label occurences
+            hold_amount = (data["labels"] == 0).sum()
+            buy_amount = (data["labels"] == 1).sum()
+            sell_amount = (data["labels"] == 2).sum()
+
+            #calculate the oversampling factors
+            buy_oversampling = math.floor(hold_amount/buy_amount)
+            sell_oversampling = math.floor(hold_amount/sell_amount)
+
+            #create mask for oversampling
+            mask = (data["labels"].iloc[self.DHP["window_size"]-1:] == 0)*1 + (data["labels"].iloc[self.DHP["window_size"]-1:] == 1)*buy_oversampling + (data["labels"].iloc[self.DHP["window_size"]-1:] == 2)*sell_oversampling
+            mask = mask.to_numpy()
+
+            fixed_index = np.repeat(fixed_index, mask)
+        
+        #shuffling
+        if self.DHP["shuffle"] == "global":
+            #shuffle the fixed_index array
+            np.random.shuffle(fixed_index)
+
+        return flat_data, labels, fixed_index
+
+    def _get_batch(self, fixed_index):
+        #get the mapper
+        mapper = self._create_mapper(fixed_index=fixed_index)
+
+        #get the window
+        windows = self.prepd_data[mapper]
+
+        #get the label
+        labels = self.labels[fixed_index]
+
+        return windows, labels
+    
+    def _create_mapper(self, fixed_index):
+        #get the window size
+        window_length = self.DHP["window_size"]
+        #get the number of features
+        n_features = len(self.DHP["features"])
+
+        #the windows we want to get
+        index_array = fixed_index.copy()
+
+        #expand the index array
+        expanded_index_array = np.expand_dims((index_array+1)*n_features, axis=[1,2])
+
+        #helperwindow for creating the mapper
+        helper_window = np.arange(1, n_features*window_length+1)[::-1].reshape(window_length, n_features)*(-1)
+
+        #create the mapper
+        mapper = np.full(shape=(index_array.shape[0], window_length, n_features), fill_value=1)
+        mapper *= expanded_index_array
+        mapper += helper_window
+
+        return mapper
 
     def get_label_count(self):
         return torch.tensor([(self.prepd_data["labels"] == 0).sum(), (self.prepd_data["labels"] == 1).sum(), (self.prepd_data["labels"] == 2).sum()], dtype=torch.float64)
@@ -784,19 +1032,18 @@ if __name__ == "__main__":
         "candlestick_interval": "5m",
         "derived": True,
         "features": ["close", "open", "high"],
-        "batch_size": 50,
+        "batch_size": 2,
         "window_size": 5,
         "labeling_method": "test",
         "scaling_method": "global",
         "test_percentage": 0.2,
-        "balancing_method": "criterion",
+        "balancing_method": None,
         "shuffle": False
     }
 
     tdb = TrainDataBase(path="./databases/ethtest", DHP=HP)
 
-    start = time.time()
     for batch, labels in tdb.train():
-        print(batch.shape)
 
-    print("Took us: ", time.time()-start)
+        print(batch)
+        print(labels)
