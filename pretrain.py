@@ -577,21 +577,22 @@ if __name__ == "__main__":
         "features": [["close", "open", "high", "low", "volume", "trend_macd", "trend_ema_slow", "trend_adx", "momentum_rsi", "momentum_kama"]],
         "batch_size": [100],
         "window_size": [100],
-        "labeling_method": ["smoothing_extrema_labeling"],
+        "labeling_method": ["test"],
         "scaling_method": ["global"],
         "test_percentage": [0.2],
-        "balancing_method": ["criterion_weights"]
+        "balancing_method": [None],
+        "shuffle": [None]
     }
 
     exp = Experiment(path="./experiments",
-                     MHP_space=MHP_space,
-                     DHP_space=DHP_space,
+                     MHP_space=MHP_space2,
+                     DHP_space=DHP_space2,
                      train_database_path="./databases/eth",
                      performanceanalytics_database_path="./databases/ethtest",
                      network=Network,
                      device=None,
-                     identifier="test6",
-                     torch_seed=None,
+                     identifier="seedtestold",
+                     torch_seed=1,
                      checkpointing=True)
     
     exp.start()
