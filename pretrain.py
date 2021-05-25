@@ -597,7 +597,7 @@ if __name__ == "__main__":
         "derived": [True],
         "features": [["close", "open", "high", "low", "volume", "trend_macd", "trend_ema_slow", "trend_adx", "momentum_rsi", "momentum_kama"]],
         "batch_size": [100],
-        "window_size": [10],
+        "window_size": [100],
         "labeling_method": ["test"],
         "scaling_method": ["global"],
         "test_percentage": [0.2],
