@@ -545,6 +545,26 @@ class Experiment():
             print("-"*100)
 
 if __name__ == "__main__":
+    MHP_total = {
+        "hidden_size": [10, 100],
+        "num_layers": [2],
+        "lr": [0.01],
+        "epochs": [10]
+    }
+
+    DHP_total = {
+        "candlestick_interval": ["5m", "15m"],
+        "derived": [True, False],
+        "features": [["close", "open", "high", "low", "volume", "trend_macd", "trend_ema_slow", "trend_adx", "momentum_rsi", "momentum_kama"]],
+        "batch_size": [50, 100],
+        "window_size": [200],
+        "labeling_method": ["test", "test2"],
+        "scaling_method": ["global"],
+        "test_percentage": [0.2],
+        "balancing_method": ["criterion_weights", "oversampling", None],
+        "shuffle": ["global", "local", None]
+    }
+    
     MHP_space = {
         "hidden_size": [10, 100],
         "num_layers": [2],
@@ -561,7 +581,8 @@ if __name__ == "__main__":
         "labeling_method": ["test", "test2"],
         "scaling_method": ["global"],
         "test_percentage": [0.2],
-        "balancing_method": ["criterion_weights"]
+        "balancing_method": ["criterion_weights"],
+        "shuffle": [None]
     }
 
     MHP_space2 = {

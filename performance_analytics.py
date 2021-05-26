@@ -4,6 +4,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 from sklearn import preprocessing
 from tqdm import tqdm
+import joblib
 
 #external files import
 from database import TrainDataBase, PerformanceAnalyticsDataBase
@@ -23,6 +24,8 @@ class PerformanceAnalytics():
         #save the variables
         self.DHP = DHP.copy()
         self.DHP["test_percentage"] = 0
+        self.DHP["balancing_method"] = None
+        self.DHP["shuffle"] = None
         self.path = path
 
         #save the scaler
