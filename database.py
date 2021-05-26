@@ -685,7 +685,7 @@ class TrainDataBase(DataBase):
             scaler.transform(data)
         else:
             raise Exception("Your chosen scaling method does not exist")
-
+        
         return data, scaler
 
     def _prepare_data(self):
@@ -707,24 +707,24 @@ class TrainDataBase(DataBase):
         data, scaler = self._raw_data_prep(data=data, derive=self.DHP["derived"], scaling_method=self.DHP["scaling_method"], preloaded_scaler=self.scaler)
 
         #remove first row from labels (because of derivation)
-        labels = labels[1:]
-
-        #add labels to datafame
-        data["labels"] = labels 
+        labels = labels.iloc[1:,:]
 
         #reset the index
         data.reset_index(inplace=True, drop=True)
+
+        #create the flat data array
+        flat_data = data.to_numpy().flatten()
+        #create the flat labels array
+        labels = labels.to_numpy().flatten()
+
+        #add labels to datafame
+        data["labels"] = labels
 
         #safe data for debuging purposes
         self.dataframe = data
 
         #save the scaler parameters
         self.scaler = scaler
-
-        #create the flat data array
-        flat_data = data.to_numpy().flatten()
-        #create the flat labels array
-        labels = labels.to_numpy().flatten()
 
         #create the fixed index array
         fixed_index = np.arange(self.DHP["window_size"]-1, data.shape[0])
