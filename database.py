@@ -598,7 +598,7 @@ class TrainDataBase(DataBase):
         Arguments:
             -none
         Return:
-            -iterable_data[generator]:      Returns a generator on which you can call next() until it is empty (Note: Throws error!)
+            -iterable_data[generator]:      Returns a generator on which you can call next() until it is empty
         """
         #get the batchsize
         bs = self.DHP["batch_size"]
@@ -607,8 +607,15 @@ class TrainDataBase(DataBase):
         index = 0
 
         for _ in range(self.train_batches_amount):
+            #get the slice
+            fixed_index_slice = self.fixed_index[index:index + bs].copy()
+            
+            #shuffle locally
+            if self.DHP["shuffle"] == "local":
+                np.random.shuffle(fixed_index_slice)
+
             #get the batch
-            batch, labels = self._get_batch(self.fixed_index[index:index + bs])
+            batch, labels = self._get_batch(fixed_index_slice)
 
             #update indeces
             index += bs
@@ -631,8 +638,15 @@ class TrainDataBase(DataBase):
         index = self.train_batches_amount*bs
 
         for _ in range(self.test_batches_amount):
+            #get the slice
+            fixed_index_slice = self.fixed_index[index:index + bs]
+
+            #shuffle locally
+            if self.DHP["shuffle"] == "local":
+                np.random.shuffle(fixed_index_slice)
+
             #get the batch
-            batch, labels = self._get_batch(self.fixed_index[index:index + bs])
+            batch, labels = self._get_batch(fixed_index_slice)
 
             #update indeces
             index += bs
@@ -714,14 +728,9 @@ class TrainDataBase(DataBase):
 
         #create the flat data array
         flat_data = data.to_numpy().flatten()
+        
         #create the flat labels array
         labels = labels.to_numpy().flatten()
-
-        #add labels to datafame
-        data["labels"] = labels
-
-        #safe data for debuging purposes
-        self.dataframe = data
 
         #save the scaler parameters
         self.scaler = scaler
@@ -732,18 +741,18 @@ class TrainDataBase(DataBase):
         #oversampling
         if self.DHP["balancing_method"] == "oversampling":
             #count the label occurences
-            hold_amount = (data["labels"] == 0).sum()
-            buy_amount = (data["labels"] == 1).sum()
-            sell_amount = (data["labels"] == 2).sum()
+            hold_amount = (labels == 0).sum()
+            buy_amount = (labels == 1).sum()
+            sell_amount = (labels == 2).sum()
 
             #calculate the oversampling factors
             buy_oversampling = math.floor(hold_amount/buy_amount)
             sell_oversampling = math.floor(hold_amount/sell_amount)
 
             #create mask for oversampling
-            mask = (data["labels"].iloc[self.DHP["window_size"]-1:] == 0)*1 + (data["labels"].iloc[self.DHP["window_size"]-1:] == 1)*buy_oversampling + (data["labels"].iloc[self.DHP["window_size"]-1:] == 2)*sell_oversampling
-            mask = mask.to_numpy()
+            mask = (labels[self.DHP["window_size"]-1:] == 0)*1 + (labels[self.DHP["window_size"]-1:] == 1)*buy_oversampling + (labels[self.DHP["window_size"]-1:] == 2)*sell_oversampling
 
+            #oversample the fixed index
             fixed_index = np.repeat(fixed_index, mask)
         
         #shuffling
@@ -788,7 +797,7 @@ class TrainDataBase(DataBase):
         return mapper
 
     def get_label_count(self):
-        return torch.tensor([(self.prepd_data["labels"] == 0).sum(), (self.prepd_data["labels"] == 1).sum(), (self.prepd_data["labels"] == 2).sum()], dtype=torch.float64)
+        return torch.tensor([(self.labels == 0).sum(), (self.labels == 1).sum(), (self.labels == 2).sum()], dtype=torch.float64)
 
 class PerformanceAnalyticsDataBase(DataBase):
 
@@ -1037,13 +1046,10 @@ if __name__ == "__main__":
         "labeling_method": "test",
         "scaling_method": "global",
         "test_percentage": 0.2,
-        "balancing_method": None,
+        "balancing_method": "oversampling",
         "shuffle": False
     }
 
     tdb = TrainDataBase(path="./databases/ethtest", DHP=HP)
-
-    for batch, labels in tdb.train():
-
-        print(batch)
-        print(labels)
+    
+    tdb.get_label_count()
