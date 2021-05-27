@@ -2,7 +2,6 @@ import json
 import numpy as np
 import datetime
 import time
-from enum import Enum
 
 def read_config(path=None):
     """
