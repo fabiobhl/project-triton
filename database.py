@@ -11,7 +11,6 @@ import shutil
 from binance.client import Client
 import numpy as np
 import pandas as pd
-from pandas.core.frame import DataFrame
 import ta
 from sklearn import preprocessing
 import torch
@@ -298,9 +297,6 @@ class DataBase():
             json.dump(dbid, fp,  indent=4)
         
         return cls(path=save_path)
-
-
-        return torch.tensor([(self.prepd_data["labels"] == 0).sum(), (self.prepd_data["labels"] == 1).sum(), (self.prepd_data["labels"] == 2).sum()], dtype=torch.float64)
 
 class TrainDataBase(DataBase):
     """

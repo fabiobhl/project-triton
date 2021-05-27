@@ -1,7 +1,6 @@
 #standard python libraries
 import datetime
 import os
-import atexit
 import json
 import itertools
 import collections
@@ -10,7 +9,6 @@ import gc
 #external libraries
 from tqdm import tqdm
 import numpy as np
-import pandas as pd
 import matplotlib
 from matplotlib import pyplot as plt
 matplotlib.use("Agg")
@@ -25,10 +23,6 @@ from torch.utils.tensorboard import SummaryWriter
 from database import TrainDataBase, dbid
 from performance_analytics import PerformanceAnalytics
 
-"""
-ToDo:
-    -"duplicating" balancing method
-"""
 
 #definition of the network
 class NetworkStateful(nn.Module):
@@ -566,23 +560,23 @@ if __name__ == "__main__":
     }
     
     MHP_space = {
-        "hidden_size": [10, 100],
+        "hidden_size": [10],
         "num_layers": [2],
-        "lr": [0.01],
+        "lr": [0.01, 1e-4],
         "epochs": [10]
     }
 
     DHP_space = {
-        "candlestick_interval": ["5m", "15m"],
+        "candlestick_interval": ["5m"],
         "derived": [True],
         "features": [["close", "open", "high", "low", "volume", "trend_macd", "trend_ema_slow", "trend_adx", "momentum_rsi", "momentum_kama"]],
-        "batch_size": [50, 100],
+        "batch_size": [50],
         "window_size": [200],
         "labeling_method": ["test", "test2"],
         "scaling_method": ["global"],
         "test_percentage": [0.2],
-        "balancing_method": ["criterion_weights"],
-        "shuffle": [None]
+        "balancing_method": ["oversampling", "criterion_weights"],
+        "shuffle": ["nothing", "global", "local"]
     }
 
     MHP_space2 = {
@@ -606,14 +600,14 @@ if __name__ == "__main__":
     }
 
     exp = Experiment(path="./experiments",
-                     MHP_space=MHP_space2,
-                     DHP_space=DHP_space2,
+                     MHP_space=MHP_space,
+                     DHP_space=DHP_space,
                      train_database_path="./databases/eth",
                      performanceanalytics_database_path="./databases/ethtest",
                      network=Network,
                      device=None,
-                     identifier="seedtestold",
-                     torch_seed=1,
+                     identifier="test5m",
+                     torch_seed=None,
                      checkpointing=True)
     
     exp.start()
