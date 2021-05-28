@@ -570,21 +570,21 @@ class TrainDataBase(DataBase):
 
 class PerformanceAnalyticsDataBase(DataBase):
 
-    def __init__(self, database_path, HP, scaler, additional_window_size=100):
+    def __init__(self, path, HP, scaler, additional_window_size=100):
         #calling the inheritance
-        super().__init__(database_path)
+        super().__init__(path)
 
         #save variables
-        self.database_path = database_path
+        self.path = path
         self.HP = HP
         self.additional_window_size = additional_window_size
         self.iterator = 0
 
         #defining initial data
-        self.data = self[self.HP["candlestick_interval"], ["open_time", "open", "high", "low", "close", "volume", "close_time"]].iloc[self.iterator: self.iterator + self.HP["window_size"]+additional_window_size,:]
+        self.data = self[self.HP.candlestick_interval, ["open_time", "open", "high", "low", "close", "volume", "close_time"]].iloc[self.iterator: self.iterator + self.HP.window_size+additional_window_size,:]
 
         #get the length of the undelying data
-        self.data_length = self[self.HP["candlestick_interval"], "close_time"].shape[0]
+        self.data_length = self[self.HP.candlestick_interval, "close_time"].shape[0]
 
         #save the scaler
         if scaler is not None and type(scaler) == str:
@@ -600,11 +600,11 @@ class PerformanceAnalyticsDataBase(DataBase):
         self.iterator += 1
 
         #check for boundary
-        if self.iterator + self.HP["window_size"]+100 >= self.data_length:
+        if self.iterator + self.HP.window_size+100 >= self.data_length:
             return False 
 
         #update the data
-        self.data = self[self.HP["candlestick_interval"], ["open_time", "open", "high", "low", "close", "volume", "close_time"]].iloc[self.iterator: self.iterator + self.HP["window_size"]+self.additional_window_size,:].reset_index(drop=True)
+        self.data = self[self.HP.candlestick_interval, ["open_time", "open", "high", "low", "close", "volume", "close_time"]].iloc[self.iterator: self.iterator + self.HP.window_size+self.additional_window_size,:].reset_index(drop=True)
 
         return True
     
@@ -617,13 +617,13 @@ class PerformanceAnalyticsDataBase(DataBase):
             warnings.filterwarnings("ignore")
             data = ta.add_all_ta_features(data, open='open', high="high", low="low", close="close", volume="volume", fillna=True)
         #select the features
-        data = data[self.HP["features"]]                                                    
+        data = data[self.HP.features]                                                    
 
         #prep the data (data is now a numpy array)
-        data, _ = TrainDataBase._raw_data_prep(data=data, derive=self.HP["derived"], scaling_method=self.HP["scaling_method"], preloaded_scaler=self.scaler)
+        data, _ = TrainDataBase._raw_data_prep(data=data, derive=self.HP.derivation, scaling_method=self.HP.scaling, preloaded_scaler=self.scaler)
 
         #get correct size
-        data = data[-self.HP["window_size"]:, :]
+        data = data[-self.HP.window_size:, :]
 
         #convert to pytorch tensor and move to device
         data = torch.tensor(data, device=device)
@@ -640,7 +640,7 @@ class PerformanceAnalyticsDataBase(DataBase):
         return self.data["close"].iloc[-1]
 
     def get_total_iterations(self):
-        return self.data_length - self.HP["window_size"] - self.additional_window_size
+        return self.data_length - self.HP.window_size - self.additional_window_size
 
 class LiveDataBase():
 
@@ -822,4 +822,11 @@ if __name__ == "__main__":
         shuffle=Shuffle.GLOBAL
     )
 
-    tdb = TrainDataBase(path="./databases/ethtest", HP=HPS)
+    """
+    New HyperParameters for DataBase and TrainDataBase implemented and pretested
+    ToDo:
+        -Implement and pretest for all other things
+        -Test if Training with the same seed result in the exact same result
+        -Not implemented yet: LiveDataBase, Pa 
+        -Not pretested yet: PaDataBase
+    """

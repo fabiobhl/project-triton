@@ -1,9 +1,10 @@
 import dataclasses
 from enum import Enum, unique
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
+import json
 
 @unique
-class CandlestickInterval(Enum):
+class CandlestickInterval(str, Enum):
     M1 = "1m"
     M3 = "3m"
     M5 = "5m"
@@ -18,23 +19,23 @@ class CandlestickInterval(Enum):
     D3 = "3d"
 
 @unique
-class Derivation(Enum):
-    TRUE = True
-    FALSE = False
+class Derivation(str, Enum):
+    TRUE = "true"
+    FALSE = "false"
 
 @unique
-class Scaling(Enum):
+class Scaling(str, Enum):
     GLOBAL = "global"
     NONE = "none"
 
 @unique
-class Balancing(Enum):
+class Balancing(str, Enum):
     CRITERION_WEIGHTS = "criterion_weights"
     OVERSAMPLING = "oversampling"
     NONE = "none"
 
 @unique
-class Shuffle(Enum):
+class Shuffle(str, Enum):
     GLOBAL = "global"
     LOCAL = "local"
     NONE = "none"
@@ -74,6 +75,31 @@ class HyperParameters:
                 current_type = type(self.__dict__[name])
                 raise TypeError(f"The Hyperparameter `{name}` was assigned with `{current_type}` instead of `{field_type}`")
 
+    def dump(self, path):
+        #get dictionary
+        dic = dataclasses.asdict(self)
+
+        #dump the dictionary
+        with open(path, "w") as hps:
+            json.dump(dic, hps, indent=4)
+
+    @classmethod
+    def load(cls, path):
+        #load the dictionary
+        with open(path, "r") as hps:
+            dic = json.load(hps)
+
+        #convert strings to enums
+        for element in dataclasses.fields(cls):
+            name = element.name
+            field_type = element.type
+
+            if issubclass(field_type, Enum):
+                dic[name] = field_type(dic[name])
+
+        return cls(**dic)
+
+        
 
 if __name__ == "__main__":
     HPS = HyperParameters(
@@ -92,5 +118,3 @@ if __name__ == "__main__":
         balancing=Balancing.OVERSAMPLING,
         shuffle=Shuffle.GLOBAL
     )
-
-    print(HPS["scaling"])

@@ -1,10 +1,14 @@
+#builtin libraries
+from hyperparameters import HyperParameters, Balancing, Shuffle
+import joblib
+import dataclasses
+
 #external libraries
 import pandas as pd
 import numpy as np
 from matplotlib import pyplot as plt
 from sklearn import preprocessing
 from tqdm import tqdm
-import joblib
 
 #external files import
 from database import TrainDataBase, PerformanceAnalyticsDataBase
@@ -12,20 +16,18 @@ from database import TrainDataBase, PerformanceAnalyticsDataBase
 #pytorch imports
 import torch
 
-"""
-    ToDo:
-"""
 
 class PerformanceAnalytics():
     """
     Class for testing a neural network model on a certain interval
     """
-    def __init__(self, path, DHP, scaler=None, device=None):
+    def __init__(self, path, HP, scaler=None, device=None):
+        #check that HP are hyperparameters
+        if not isinstance(HP, HyperParameters):
+            raise Exception("The passed Hyperparameters for this TrainDataBase were not of instance HyperParameters")
+        
         #save the variables
-        self.DHP = DHP.copy()
-        self.DHP["test_percentage"] = 0
-        self.DHP["balancing_method"] = None
-        self.DHP["shuffle"] = None
+        self.HP = dataclasses.replace(HP, test_percentage=0.0, balancing=Balancing.NONE, shuffle=Shuffle.NONE)
         self.path = path
 
         #save the scaler
@@ -38,7 +40,7 @@ class PerformanceAnalytics():
             self.scaler = None
             
         #load the database
-        self.tdb = TrainDataBase(path=path, DHP=self.DHP, device=device, scaler=scaler)
+        self.tdb = TrainDataBase(path=path, HP=self.HP, device=device, scaler=scaler)
 
         #get the device
         if device == None:
@@ -63,7 +65,7 @@ class PerformanceAnalytics():
         Calculations
         """
         #create bsh array (The array, where the predictions are going to be safed)
-        bsh = np.empty((self.DHP["window_size"]-1))
+        bsh = np.empty((self.HP.window_size-1))
         bsh[:] = np.nan
         bsh = torch.as_tensor(bsh).to(self.device)
             
@@ -91,7 +93,7 @@ class PerformanceAnalytics():
         bsh = bsh.to('cpu').numpy()
 
         #create a trading frame
-        trading_frame = self.tdb[self.DHP["candlestick_interval"], ["close_time", "close"]]
+        trading_frame = self.tdb[self.HP.candlestick_interval, ["close_time", "close"]]
         trading_frame["hold"] = np.nan
         trading_frame["buy"] = np.nan
         trading_frame["sell"] = np.nan
@@ -159,7 +161,7 @@ class PerformanceAnalytics():
 
     def evaluate_model_slow(self, model, additional_window_size=100, trading_fee=0.075):        
         #create a padb
-        padb = PerformanceAnalyticsDataBase(database_path=self.path, HP=self.DHP, scaler=self.scaler, additional_window_size=additional_window_size)
+        padb = PerformanceAnalyticsDataBase(database_path=self.path, HP=self.HP, scaler=self.scaler, additional_window_size=additional_window_size)
         
         #convet tradingfee to dezimal
         trading_fee_dez = trading_fee/100
@@ -169,7 +171,7 @@ class PerformanceAnalytics():
         model.to(torch.device("cpu"))
 
         #create a trading frame
-        trading_frame = padb[self.DHP["candlestick_interval"], ["close_time", "close"]].copy()
+        trading_frame = padb[self.HP.candlestick_interval, ["close_time", "close"]].copy()
         trading_frame["hold"] = np.nan
         trading_frame["buy"] = np.nan
         trading_frame["sell"] = np.nan
@@ -246,7 +248,7 @@ class PerformanceAnalytics():
         return_dict["specific_profit"] = specific_profit
         
         #specific profit rate (specific profit per candlestick_interval)
-        amount_of_intervals = (trading_frame.shape[0]-self.DHP["window_size"])
+        amount_of_intervals = (trading_frame.shape[0]-self.HP.window_size)
         specific_profit_rate = specific_profit/amount_of_intervals
         return_dict["specific_profit_rate"] = specific_profit_rate
 
@@ -269,7 +271,7 @@ class PerformanceAnalytics():
 
         return return_dict
 
-    def compare_efficient_slow(self, model, trading_fee=0.075):
+    def compare_efficient_slow(self, model):
         result_efficient = self.evaluate_model(model=model)
         result_slow = self.evaluate_model_slow(model=model)
 
@@ -283,18 +285,26 @@ class PerformanceAnalytics():
 
 if __name__ == "__main__":
     from pretrain import Network
+    from hyperparameters import CandlestickInterval, Derivation, Scaling
     
-    HPS = {
-        "candlestick_interval": "5m",
-        "derived": True,
-        "features": ["close", "open", "volume"],
-        "batch_size": 100,
-        "window_size": 20,
-        "labeling_method": "smoothing_extrema_labeling",
-        "scaling_method": "global",
-        "test_percentage": 0.2,
-        "balancing_method": "criterion_weights"
-    }
+    HPS = HyperParameters(
+        hidden_size=10,
+        num_layers=4,
+        lr=1e-4,
+        epochs=50,
+        candlestick_interval=CandlestickInterval.M5,
+        features=["close", "open", "volume"],
+        derivation=Derivation.TRUE,
+        batch_size=100,
+        window_size=20,
+        labeling="test",
+        scaling=Scaling.GLOBAL,
+        test_percentage=0.2,
+        balancing=Balancing.OVERSAMPLING,
+        shuffle=Shuffle.GLOBAL
+    )
+
+    pa = PerformanceAnalytics(path="./databases/ethtest", HP=HPS, device="cpu")
     
     model = Network(MHP={
         "hidden_size": 10,
@@ -310,5 +320,5 @@ if __name__ == "__main__":
     #create the neural network
     model.load_state_dict(state_dict)
     
-    pa = PerformanceAnalytics(path="./databases/ethmai", DHP=HPS, device="cpu")
+    
     result = pa.evaluate_model(model=model)

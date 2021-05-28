@@ -1,9 +1,9 @@
 #standard python libraries
+import dataclasses
 import datetime
 import os
 import json
 import itertools
-import collections
 import gc
 
 #external libraries
@@ -22,6 +22,7 @@ from torch.utils.tensorboard import SummaryWriter
 #file imports
 from database import TrainDataBase, dbid
 from performance_analytics import PerformanceAnalytics
+from hyperparameters import HyperParameters, CandlestickInterval, Derivation, Scaling, Balancing, Shuffle
 
 
 #definition of the network
@@ -70,13 +71,13 @@ class NetworkStateful(nn.Module):
 
 class Network(nn.Module):
 
-    def __init__(self, MHP):
+    def __init__(self, HP):
         super(Network, self).__init__()
 
         #save values
-        self.feature_size = len(MHP["features"])
-        self.hidden_size = MHP["hidden_size"]
-        self.num_layers = MHP["num_layers"]
+        self.feature_size = len(HP.features)
+        self.hidden_size = HP.hidden_size
+        self.num_layers = HP.num_layers
 
         #create the lstm layer
         self.lstm1 = nn.LSTM(input_size=self.feature_size, hidden_size=self.hidden_size, batch_first=True, num_layers=self.num_layers)
@@ -139,8 +140,15 @@ class RunManager():
         self.run_best_specific_profit_stability = 0
 
         #create the tb for the run and save the graph of the network
-        self.tb = SummaryWriter(log_dir=f"{self.path}/Run{self.run_count}")
+        run_dict = dataclasses.asdict(run)
+        del run_dict["features"]
+        run_string = json.dumps(run_dict).replace('"', "").replace(":", "=").replace(" ", "")
+        directory = f"{self.path}/Run{self.run_count}{run_string}"
+        self.tb = SummaryWriter(log_dir=directory)
         self.tb.add_graph(model, input_to_model=example_data)
+
+        #save the directory
+        self.log_directory = f"{self.path}/Run{self.run_count}{run_string}"
 
     def end_run(self):
         #save the hyperparameters
@@ -148,7 +156,7 @@ class RunManager():
             "ZMax Test Accuracy": self.run_best_test_accuracy,
             "ZMax Specific Profit Stability": self.run_best_specific_profit_stability
         }
-        HPs = self.run
+        HPs = dataclasses.asdict(self.run)
         HPs["features"] = str(HPs["features"])
         self.tb.add_hparams(hparam_dict=HPs, metric_dict=metrics)
 
@@ -282,10 +290,9 @@ class RunManager():
 
 class Experiment():
 
-    def __init__(self, path, MHP_space, DHP_space, train_database_path, performanceanalytics_database_path, network, checkpointing=False, device=None, identifier=None, torch_seed=None):
+    def __init__(self, path, HP_space, train_database_path, performanceanalytics_database_path, network, checkpointing=False, device=None, identifier=None, torch_seed=None):
         #save the variables
-        self.MHP_space = MHP_space
-        self.DHP_space = DHP_space
+        self.HP_space = HP_space
         self.train_database_path = train_database_path
         self.performanceanalytics_database_path = performanceanalytics_database_path
         self.network = network
@@ -352,8 +359,7 @@ class Experiment():
         self.info["start_date"] = start_date
         self.info["id"] = self.id
         self.info["device"] = str(self.device)
-        self.info["MHP_space"] = self.MHP_space
-        self.info["DHP_space"] = self.DHP_space
+        self.info["HP_space"] = self.HP_space
         self.info["torch_seed"] = self.torch_seed
         #train data dbid
         dbid_info = dbid(train_database_path)
@@ -377,19 +383,12 @@ class Experiment():
         Return:
             -combinations[list]:   Returns a list containing all the runs. One run is represented by a named tuple.
         """
-        #get a list of all hyperparameters
-        HPs = list(self.MHP_space.keys()) + list(self.DHP_space.keys())
-        #create a named tuple
-        run = collections.namedtuple(typename="Run", field_names=HPs)
-
-        #get a list of hp spaces
-        values = list(self.MHP_space.values()) + list(self.DHP_space.values())
-
-        #a list to save all runs
         runs = []
-
+        values = self.HP_space.values()
         for combination in itertools.product(*values):
-            runs.append(dict(run(*combination)._asdict()))
+            comb_dict = dict(zip(HP_space.keys(), combination))
+            run = HyperParameters(**comb_dict)
+            runs.append(run)
 
         return runs
 
@@ -401,20 +400,20 @@ class Experiment():
         self.run_count += 1
 
         #create traindatabase
-        tdb = TrainDataBase(path=self.train_database_path, DHP=run, device=self.device)
+        tdb = TrainDataBase(path=self.train_database_path, HP=run, device=self.device)
 
         #create the pa
-        pa = PerformanceAnalytics(path=self.performanceanalytics_database_path, DHP=run, scaler=tdb.scaler, device=self.device)
+        pa = PerformanceAnalytics(path=self.performanceanalytics_database_path, HP=run, scaler=tdb.scaler, device=self.device)
 
         #create network
-        model = self.network(MHP=run)
+        model = self.network(HP=run)
         model.to(self.device)
 
         #create the optimizer
-        optimizer = torch.optim.Adam(model.parameters(), lr=run["lr"])
+        optimizer = torch.optim.Adam(model.parameters(), lr=run.lr)
 
         #create the criterion (Loss Calculator)
-        if run["balancing_method"] == "criterion_weights":
+        if run.balancing is Balancing.CRITERION_WEIGHTS:
             #create the weight tensor
             weights = tdb.get_label_count()
             weights = weights / weights.sum()
@@ -434,7 +433,7 @@ class Experiment():
         Epoch Loop
         """
         #epoch loop
-        for epoch in tqdm(range(run["epochs"]), leave=True, desc="Epochs", unit="Epoch"):
+        for epoch in tqdm(range(run.epochs), leave=True, desc="Epochs", unit="Epoch"):
             #start the epoch
             runman.begin_epoch()
 
@@ -474,7 +473,7 @@ class Experiment():
                     progressbar.update(1)
 
             #log the train data
-            number = tdb.train_batches_amount*run["batch_size"]  #number_of_batches * batch_size
+            number = tdb.train_batches_amount*run.batch_size  #number_of_batches * batch_size
             runman.log_training(num_train_samples=number)
 
             """
@@ -504,33 +503,29 @@ class Experiment():
             performance = pa.evaluate_model(model=model) 
 
             #log the train data
-            number = tdb.test_batches_amount*run["batch_size"]  #number_of_batches * batch_size
+            number = tdb.test_batches_amount*run.batch_size  #number_of_batches * batch_size
             runman.log_testing(num_test_samples=number, performance_data=performance)
 
             #checkpointing
             if self.checkpointing:
-                torch.save(model.state_dict(), f"{self.path}/Run{self.run_count}/Epoch{epoch}")
+                torch.save(model.state_dict(), f"{runman.log_directory}/Epoch{epoch}")
 
         """
         Logging
         """
         #save run parameters
-        parameters = run.copy()
-        with open(f"{self.path}/Run{self.run_count}/info.json", "w") as info:
-            json.dump(parameters, info, indent=4)
+        with open(f"{runman.log_directory}/hyperparameters.json", "w") as info:
+            json.dump(dataclasses.asdict(run), info, indent=4)
 
         #save the scaler
-        joblib.dump(value=tdb.scaler, filename=f"{self.path}/Run{self.run_count}/scaler.joblib")
+        joblib.dump(value=tdb.scaler, filename=f"{runman.log_directory}/scaler.joblib")
 
         #end the run in the runmanager
         runman.end_run()
 
     def start(self):
         for index, run in enumerate(self.runs):
-            #named tuple for printing
-            ntuple = collections.namedtuple("Run", run)
-            
-            print(f"Running: {index+1}/{self.runs_amount}", ntuple(**run))
+            print(f"Running: {index+1}/{self.runs_amount}", run)
             
             self.conduct_run(run=run)
 
@@ -539,75 +534,31 @@ class Experiment():
             print("-"*100)
 
 if __name__ == "__main__":
-    MHP_total = {
-        "hidden_size": [10, 100],
+    HP_space = {
+        "hidden_size": [3],
         "num_layers": [2],
         "lr": [0.01],
-        "epochs": [10]
-    }
-
-    DHP_total = {
-        "candlestick_interval": ["5m", "15m"],
-        "derived": [True, False],
-        "features": [["close", "open", "high", "low", "volume", "trend_macd", "trend_ema_slow", "trend_adx", "momentum_rsi", "momentum_kama"]],
-        "batch_size": [50, 100],
-        "window_size": [200],
-        "labeling_method": ["test", "test2"],
-        "scaling_method": ["global"],
-        "test_percentage": [0.2],
-        "balancing_method": ["criterion_weights", "oversampling", None],
-        "shuffle": ["global", "local", None]
-    }
-    
-    MHP_space = {
-        "hidden_size": [10],
-        "num_layers": [2],
-        "lr": [0.01, 1e-4],
-        "epochs": [10]
-    }
-
-    DHP_space = {
-        "candlestick_interval": ["5m"],
-        "derived": [True],
+        "epochs": [3],
+        "candlestick_interval": [CandlestickInterval.M15],
+        "derivation": [Derivation.TRUE, Derivation.FALSE],
         "features": [["close", "open", "high", "low", "volume", "trend_macd", "trend_ema_slow", "trend_adx", "momentum_rsi", "momentum_kama"]],
         "batch_size": [50],
         "window_size": [200],
-        "labeling_method": ["test", "test2"],
-        "scaling_method": ["global"],
+        "labeling": ["test"],
+        "scaling": [Scaling.GLOBAL, Scaling.NONE],
         "test_percentage": [0.2],
-        "balancing_method": ["oversampling", "criterion_weights"],
-        "shuffle": ["nothing", "global", "local"]
-    }
-
-    MHP_space2 = {
-        "hidden_size": [10],
-        "num_layers": [2],
-        "lr": [0.01],
-        "epochs": [5]
-    }
-
-    DHP_space2 = {
-        "candlestick_interval": ["5m"],
-        "derived": [True],
-        "features": [["close", "open", "high", "low", "volume", "trend_macd", "trend_ema_slow", "trend_adx", "momentum_rsi", "momentum_kama"]],
-        "batch_size": [100],
-        "window_size": [100],
-        "labeling_method": ["test"],
-        "scaling_method": ["global"],
-        "test_percentage": [0.2],
-        "balancing_method": [None],
-        "shuffle": [None]
+        "balancing": [Balancing.CRITERION_WEIGHTS, Balancing.OVERSAMPLING, Balancing.NONE],
+        "shuffle": [Shuffle.GLOBAL, Shuffle.LOCAL, Shuffle.NONE]
     }
 
     exp = Experiment(path="./experiments",
-                     MHP_space=MHP_space,
-                     DHP_space=DHP_space,
-                     train_database_path="./databases/eth",
+                     HP_space=HP_space,
+                     train_database_path="./databases/ethtest",
                      performanceanalytics_database_path="./databases/ethtest",
                      network=Network,
                      device=None,
-                     identifier="test5m",
-                     torch_seed=None,
+                     identifier="testnew",
+                     torch_seed=1,
                      checkpointing=True)
     
     exp.start()
