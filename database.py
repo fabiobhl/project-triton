@@ -6,6 +6,7 @@ import os
 import warnings
 import math
 import shutil
+import joblib
 
 #external libraries
 from binance.client import Client
@@ -14,10 +15,10 @@ import pandas as pd
 import ta
 from sklearn import preprocessing
 import torch
-import joblib
 
 #external methods
 from utils import read_config, read_json
+from hyperparameters import HyperParameters, CandlestickInterval, Derivation, Scaling, Balancing, Shuffle
 
 class dbid():
     """
@@ -81,11 +82,18 @@ class DataBase():
         Return:
             -data[pd.DataFrame]:    Returns always a DataFrame in the shape (rows, number of specified features) 
         """
+        #make sure that candlestick interval is of type CandlestickInterval
+        if type(index) == tuple:
+            if not isinstance(index[0], CandlestickInterval):
+                raise Exception(f"Make sure your candlestick interval is of type CandlestickInterval and not {type(index[0])}")
+        elif not isinstance(index, CandlestickInterval):
+            raise Exception(f"Make sure your candlestick interval is of type CandlestickInterval and not {type(index)}")
+        
         #set the path
         if type(index) == tuple:
-            path = f"{self.path}/{index[0]}" 
-        elif type(index) == str:
-            path = f"{self.path}/{index}"
+            path = f"{self.path}/{index[0].value}" 
+        elif isinstance(index, CandlestickInterval):
+            path = f"{self.path}/{index.value}"
         else:
             raise Exception("Your chosen index is not valid")
 
@@ -94,10 +102,10 @@ class DataBase():
             raise Exception("Your chosen kline-interval is not available")
 
         #access whole dataframe of certain kline-interval
-        if type(index) == str:
+        if isinstance(index, CandlestickInterval):
             #load in the data and return
             try:
-                data = pd.read_csv(filepath_or_buffer=f"{path}/{index}", index_col="index")
+                data = pd.read_csv(filepath_or_buffer=f"{path}/{index.value}", index_col="index")
                 
                 #convert the date columns
                 data["close_time"]= pd.to_datetime(data["close_time"])
@@ -109,7 +117,7 @@ class DataBase():
                 raise Exception("Your chosen kline-interval is not available in this DataBase")
 
         #access all the labels
-        elif type(index) == tuple and len(index) == 2 and type(index[0]) == str and index[1] == "labels":
+        elif type(index) == tuple and len(index) == 2 and isinstance(index[0], CandlestickInterval) and index[1] == "labels":
             try:
                 #get all the label names
                 label_names = next(os.walk(f"{path}/labels"))[1]
@@ -125,7 +133,7 @@ class DataBase():
                 raise Exception("There are no labels in your database")
 
         #access one label
-        elif type(index) == tuple and len(index) == 3 and type(index[0]) == str and index[1] == "labels" and type(index[2]) == str:
+        elif type(index) == tuple and len(index) == 3 and isinstance(index[0], CandlestickInterval) and index[1] == "labels" and type(index[2]) == str:
             try:
                 #load in the labels
                 labels = pd.read_csv(filepath_or_buffer=f"{path}/labels/{index[2]}/labels.csv", header=None, index_col=0, names=["index", index[2]])
@@ -135,7 +143,7 @@ class DataBase():
                 raise Exception("Your chosen label-type is not available")
         
         #access a list of labels
-        elif type(index) == tuple and len(index) == 3 and type(index[0]) == str and index[1] == "labels" and type(index[2]) == list:
+        elif type(index) == tuple and len(index) == 3 and isinstance(index[0], CandlestickInterval) and index[1] == "labels" and type(index[2]) == list:
             try:
                 #load in the labels
                 labels = pd.DataFrame()
@@ -149,9 +157,9 @@ class DataBase():
                 raise Exception("Your chosen label-type is not available")
 
         #access one feature of a kline-interval
-        elif type(index) == tuple and len(index) == 2 and type(index[0]) == str and type(index[1]) == str:
+        elif type(index) == tuple and len(index) == 2 and isinstance(index[0], CandlestickInterval) and type(index[1]) == str:
             try:
-                data = pd.read_csv(filepath_or_buffer=f"{path}/{index[0]}", usecols=[index[1]])
+                data = pd.read_csv(filepath_or_buffer=f"{path}/{index[0].value}", usecols=[index[1]])
                 
                 #convert the date columns
                 if "close_time" in data.columns:
@@ -165,9 +173,9 @@ class DataBase():
                 raise Exception("Your chosen feature is not available in this DataBase")
             
         #access list of features of a kline-interval
-        elif type(index) == tuple and len(index) == 2 and type(index[0]) == str and type(index[1]) == list:
+        elif type(index) == tuple and len(index) == 2 and isinstance(index[0], CandlestickInterval) and type(index[1]) == list:
             try:
-                data = pd.read_csv(filepath_or_buffer=f"{path}/{index[0]}", usecols=index[1])
+                data = pd.read_csv(filepath_or_buffer=f"{path}/{index[0].value}", usecols=index[1])
                 
                 #convert the date columns
                 if "close_time" in data.columns:
@@ -227,17 +235,21 @@ class DataBase():
 
     def add_candlestick_interval(self, candlestick_interval, config_path=None):
         #check if interval already exists
-        if os.path.isdir(f"{self.path}/{candlestick_interval}"):
+        if os.path.isdir(f"{self.path}/{candlestick_interval.value}"):
             raise Exception("Your chosen candlestick_interval already exists")
 
         #download interval
-        data = self._download_kline_interval(symbol=self.dbid["symbol"], start_date=self.dbid["date_range"][0], end_date=self.dbid["date_range"][1], candlestick_interval=candlestick_interval, config_path=config_path)
+        data = self._download_kline_interval(symbol=self.dbid["symbol"], start_date=self.dbid["date_range"][0], end_date=self.dbid["date_range"][1], candlestick_interval=candlestick_interval.value, config_path=config_path)
 
         #create the directory
-        os.mkdir(f"{self.path}/{candlestick_interval}")
+        os.mkdir(f"{self.path}/{candlestick_interval.value}")
 
         #save the data to csv's
-        data.to_csv(path_or_buf=f"{self.path}/{candlestick_interval}/{candlestick_interval}", index_label="index")
+        data.to_csv(path_or_buf=f"{self.path}/{candlestick_interval.value}/{candlestick_interval.value}", index_label="index")
+
+        #add candlestick_interval to dbid
+        self.dbid["candlestick_interval"].append(candlestick_interval.value)
+        self.dbid.dump()
 
     @classmethod
     def create(cls, save_path, symbol, date_span, candlestick_intervals, config_path=None):
@@ -270,13 +282,13 @@ class DataBase():
         try:
             for candlestick_interval in candlestick_intervals:
                 #download the data
-                data = cls._download_kline_interval(symbol=symbol, start_date=startdate, end_date=enddate, candlestick_interval=candlestick_interval, config_path=config_path)
+                data = cls._download_kline_interval(symbol=symbol, start_date=startdate, end_date=enddate, candlestick_interval=candlestick_interval.value, config_path=config_path)
 
                 #create the directory
-                os.mkdir(f"{save_path}/{candlestick_interval}")
+                os.mkdir(f"{save_path}/{candlestick_interval.value}")
 
                 #save the data to csv's
-                data.to_csv(path_or_buf=f"{save_path}/{candlestick_interval}/{candlestick_interval}", index_label="index")
+                data.to_csv(path_or_buf=f"{save_path}/{candlestick_interval.value}/{candlestick_interval.value}", index_label="index")
         except Exception as e:
             shutil.rmtree(save_path)
             raise e
@@ -289,7 +301,8 @@ class DataBase():
         #create the dbid
         dbid = {
             "symbol": symbol,
-            "date_range": (startdate, enddate)
+            "date_range": (startdate, enddate),
+            "candlestick_interval": [candlestick_interval.value for candlestick_interval in candlestick_intervals]
         }
 
         #save the dbid
@@ -316,12 +329,16 @@ class TrainDataBase(DataBase):
         -test_percentage[float]:        What percentage of your dataset should be used as tests
         -device[torch.device]:          The device you want your data on, if set to None then the device gets autodetected (utilises cuda if it is available)
     """
-    def __init__(self, path, DHP, scaler=None, device=None, seed=None):
+    def __init__(self, path, HP, scaler=None, device=None, seed=None):
         #calling the inheritance
         super().__init__(path)
 
-        #safe the variables
-        self.DHP = DHP
+        #safe the hyperparameters
+        if not isinstance(HP, HyperParameters):
+            raise Exception("The passed Hyperparameters for this TrainDataBase were not of instance HyperParameters")
+        self.HP = HP
+
+        #save the seed
         self.seed = seed
 
         #auto detection for device
@@ -344,8 +361,8 @@ class TrainDataBase(DataBase):
 
         #calculate data variables
         self.windows_amount = self.fixed_index.shape[0]
-        self.batches_amount = math.floor(self.windows_amount/self.DHP["batch_size"])
-        self.train_batches_amount = self.batches_amount - math.floor(self.batches_amount*self.DHP["test_percentage"])
+        self.batches_amount = math.floor(self.windows_amount/self.HP.batch_size)
+        self.train_batches_amount = self.batches_amount - math.floor(self.batches_amount*self.HP.test_percentage)
         self.test_batches_amount = self.batches_amount - self.train_batches_amount
 
     def train(self):
@@ -358,7 +375,7 @@ class TrainDataBase(DataBase):
             -iterable_data[generator]:      Returns a generator on which you can call next() until it is empty
         """
         #get the batchsize
-        bs = self.DHP["batch_size"]
+        bs = self.HP.batch_size
 
         #create the index
         index = 0
@@ -368,7 +385,7 @@ class TrainDataBase(DataBase):
             fixed_index_slice = self.fixed_index[index:index + bs].copy()
             
             #shuffle locally
-            if self.DHP["shuffle"] == "local":
+            if self.HP.shuffle is Shuffle.LOCAL:
                 generator = np.random.default_rng(seed=self.seed)
                 generator.shuffle(fixed_index_slice)
 
@@ -390,7 +407,7 @@ class TrainDataBase(DataBase):
             -iterable_data[generator]:      Returns a generator on which you can call next() until it is empty (Note: Throws error!)
         """
         #get the batchsize
-        bs = self.DHP["batch_size"]
+        bs = self.HP.batch_size
 
         #create the index
         index = self.train_batches_amount*bs
@@ -400,7 +417,7 @@ class TrainDataBase(DataBase):
             fixed_index_slice = self.fixed_index[index:index + bs]
 
             #shuffle locally
-            if self.DHP["shuffle"] == "local":
+            if self.HP.shuffle is Shuffle.LOCAL:
                 generator = np.random.default_rng(seed=self.seed)
                 generator.shuffle(fixed_index_slice)
 
@@ -434,7 +451,7 @@ class TrainDataBase(DataBase):
             return data
         
         #derive the data
-        if derive:
+        if derive is Derivation.TRUE:
             data = derive_data(data)
         
         #remove first row
@@ -442,7 +459,7 @@ class TrainDataBase(DataBase):
         
         #scale
         scaler = None
-        if scaling_method == "global":
+        if scaling_method is Scaling.GLOBAL:
             if preloaded_scaler is not None:
                 #set the scaler
                 scaler = preloaded_scaler
@@ -456,9 +473,6 @@ class TrainDataBase(DataBase):
             
             #fit the data
             scaler.transform(data)
-        else:
-            pass
-            #raise Exception("Your chosen scaling method does not exist")
         
         return data, scaler
 
@@ -472,13 +486,13 @@ class TrainDataBase(DataBase):
             -nothing
         """
         #get the labels
-        labels = self[self.DHP["candlestick_interval"], "labels", self.DHP["labeling_method"]]
+        labels = self[self.HP.candlestick_interval, "labels", self.HP.labeling]
 
         #select the features
-        data = self[self.DHP["candlestick_interval"], self.DHP["features"]]
+        data = self[self.HP.candlestick_interval, self.HP.features]
 
         #data operations that can be made on the whole dataset
-        data, scaler = self._raw_data_prep(data=data, derive=self.DHP["derived"], scaling_method=self.DHP["scaling_method"], preloaded_scaler=self.scaler)
+        data, scaler = self._raw_data_prep(data=data, derive=self.HP.derivation, scaling_method=self.HP.scaling, preloaded_scaler=self.scaler)
 
         #remove first row from labels (because of derivation)
         labels = labels.iloc[1:,:]
@@ -496,10 +510,10 @@ class TrainDataBase(DataBase):
         self.scaler = scaler
 
         #create the fixed index array
-        fixed_index = np.arange(self.DHP["window_size"]-1, data.shape[0])
+        fixed_index = np.arange(self.HP.window_size-1, data.shape[0])
 
         #oversampling
-        if self.DHP["balancing_method"] == "oversampling":
+        if self.HP.balancing is Balancing.OVERSAMPLING:
             #count the label occurences
             hold_amount = (labels == 0).sum()
             buy_amount = (labels == 1).sum()
@@ -510,13 +524,13 @@ class TrainDataBase(DataBase):
             sell_oversampling = math.floor(hold_amount/sell_amount)
 
             #create mask for oversampling
-            mask = (labels[self.DHP["window_size"]-1:] == 0)*1 + (labels[self.DHP["window_size"]-1:] == 1)*buy_oversampling + (labels[self.DHP["window_size"]-1:] == 2)*sell_oversampling
+            mask = (labels[self.HP.window_size-1:] == 0)*1 + (labels[self.HP.window_size-1:] == 1)*buy_oversampling + (labels[self.HP.window_size-1:] == 2)*sell_oversampling
 
             #oversample the fixed index
             fixed_index = np.repeat(fixed_index, mask)
         
         #shuffling
-        if self.DHP["shuffle"] == "global":
+        if self.HP.shuffle is Shuffle.GLOBAL:
             #shuffle the fixed_index array
             generator = np.random.default_rng(seed=self.seed)
             generator.shuffle(fixed_index)
@@ -537,9 +551,9 @@ class TrainDataBase(DataBase):
     
     def _create_mapper(self, fixed_index):
         #get the window size
-        window_length = self.DHP["window_size"]
+        window_length = self.HP.window_size
         #get the number of features
-        n_features = len(self.DHP["features"])
+        n_features = len(self.HP.features)
 
         #the windows we want to get
         index_array = fixed_index.copy()
@@ -562,21 +576,21 @@ class TrainDataBase(DataBase):
 
 class PerformanceAnalyticsDataBase(DataBase):
 
-    def __init__(self, database_path, HP, scaler, additional_window_size=100):
+    def __init__(self, path, HP, scaler, additional_window_size=100):
         #calling the inheritance
-        super().__init__(database_path)
+        super().__init__(path)
 
         #save variables
-        self.database_path = database_path
+        self.path = path
         self.HP = HP
         self.additional_window_size = additional_window_size
         self.iterator = 0
 
         #defining initial data
-        self.data = self[self.HP["candlestick_interval"], ["open_time", "open", "high", "low", "close", "volume", "close_time"]].iloc[self.iterator: self.iterator + self.HP["window_size"]+additional_window_size,:]
+        self.data = self[self.HP.candlestick_interval, ["open_time", "open", "high", "low", "close", "volume", "close_time"]].iloc[self.iterator: self.iterator + self.HP.window_size+additional_window_size,:]
 
         #get the length of the undelying data
-        self.data_length = self[self.HP["candlestick_interval"], "close_time"].shape[0]
+        self.data_length = self[self.HP.candlestick_interval, "close_time"].shape[0]
 
         #save the scaler
         if scaler is not None and type(scaler) == str:
@@ -592,11 +606,11 @@ class PerformanceAnalyticsDataBase(DataBase):
         self.iterator += 1
 
         #check for boundary
-        if self.iterator + self.HP["window_size"]+100 >= self.data_length:
+        if self.iterator + self.HP.window_size+100 >= self.data_length:
             return False 
 
         #update the data
-        self.data = self[self.HP["candlestick_interval"], ["open_time", "open", "high", "low", "close", "volume", "close_time"]].iloc[self.iterator: self.iterator + self.HP["window_size"]+self.additional_window_size,:].reset_index(drop=True)
+        self.data = self[self.HP.candlestick_interval, ["open_time", "open", "high", "low", "close", "volume", "close_time"]].iloc[self.iterator: self.iterator + self.HP.window_size+self.additional_window_size,:].reset_index(drop=True)
 
         return True
     
@@ -609,13 +623,13 @@ class PerformanceAnalyticsDataBase(DataBase):
             warnings.filterwarnings("ignore")
             data = ta.add_all_ta_features(data, open='open', high="high", low="low", close="close", volume="volume", fillna=True)
         #select the features
-        data = data[self.HP["features"]]                                                    
+        data = data[self.HP.features]                                                    
 
         #prep the data (data is now a numpy array)
-        data, _ = TrainDataBase._raw_data_prep(data=data, derive=self.HP["derived"], scaling_method=self.HP["scaling_method"], preloaded_scaler=self.scaler)
+        data, _ = TrainDataBase._raw_data_prep(data=data, derive=self.HP.derivation, scaling_method=self.HP.scaling, preloaded_scaler=self.scaler)
 
         #get correct size
-        data = data[-self.HP["window_size"]:, :]
+        data = data[-self.HP.window_size:, :]
 
         #convert to pytorch tensor and move to device
         data = torch.tensor(data, device=device)
@@ -632,7 +646,7 @@ class PerformanceAnalyticsDataBase(DataBase):
         return self.data["close"].iloc[-1]
 
     def get_total_iterations(self):
-        return self.data_length - self.HP["window_size"] - self.additional_window_size
+        return self.data_length - self.HP.window_size - self.additional_window_size
 
 class LiveDataBase():
 
@@ -796,21 +810,20 @@ class LiveDataBase():
         instance = cls(symbol=symbol, info_path=info_path, config_path=config_path)
         return instance
 
-if __name__ == "__main__":
-    import time
-    HP = {
-        "candlestick_interval": "5m",
-        "derived": True,
-        "features": ["close", "open", "high"],
-        "batch_size": 2,
-        "window_size": 5,
-        "labeling_method": "test",
-        "scaling_method": "global",
-        "test_percentage": 0.2,
-        "balancing_method": "oversampling",
-        "shuffle": False
-    }
-
-    tdb = TrainDataBase(path="./databases/ethtest", DHP=HP)
-    
-    tdb.get_label_count()
+if __name__ == "__main__":    
+    HPS = HyperParameters(
+        hidden_size=10,
+        num_layers=4,
+        lr=1e-4,
+        epochs=50,
+        candlestick_interval=CandlestickInterval.M5,
+        features=["close", "open", "high", "low", "volume"],
+        derivation=Derivation.TRUE,
+        batch_size=100,
+        window_size=400,
+        labeling="test",
+        scaling=Scaling.GLOBAL,
+        test_percentage=0.2,
+        balancing=Balancing.OVERSAMPLING,
+        shuffle=Shuffle.GLOBAL
+    )
