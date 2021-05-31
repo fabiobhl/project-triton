@@ -400,7 +400,7 @@ class Experiment():
         self.run_count += 1
 
         #create traindatabase
-        tdb = TrainDataBase(path=self.train_database_path, HP=run, device=self.device)
+        tdb = TrainDataBase(path=self.train_database_path, HP=run, device=self.device, seed=self.torch_seed)
 
         #create the pa
         pa = PerformanceAnalytics(path=self.performanceanalytics_database_path, HP=run, scaler=tdb.scaler, device=self.device)

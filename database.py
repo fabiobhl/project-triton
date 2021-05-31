@@ -329,7 +329,7 @@ class TrainDataBase(DataBase):
         -test_percentage[float]:        What percentage of your dataset should be used as tests
         -device[torch.device]:          The device you want your data on, if set to None then the device gets autodetected (utilises cuda if it is available)
     """
-    def __init__(self, path, HP, scaler=None, device=None):
+    def __init__(self, path, HP, scaler=None, device=None, seed=None):
         #calling the inheritance
         super().__init__(path)
 
@@ -337,6 +337,9 @@ class TrainDataBase(DataBase):
         if not isinstance(HP, HyperParameters):
             raise Exception("The passed Hyperparameters for this TrainDataBase were not of instance HyperParameters")
         self.HP = HP
+
+        #save the seed
+        self.seed = seed
 
         #auto detection for device
         if device == None:
@@ -383,7 +386,8 @@ class TrainDataBase(DataBase):
             
             #shuffle locally
             if self.HP.shuffle is Shuffle.LOCAL:
-                np.random.shuffle(fixed_index_slice)
+                generator = np.random.default_rng(seed=self.seed)
+                generator.shuffle(fixed_index_slice)
 
             #get the batch
             batch, labels = self._get_batch(fixed_index_slice)
@@ -414,7 +418,8 @@ class TrainDataBase(DataBase):
 
             #shuffle locally
             if self.HP.shuffle is Shuffle.LOCAL:
-                np.random.shuffle(fixed_index_slice)
+                generator = np.random.default_rng(seed=self.seed)
+                generator.shuffle(fixed_index_slice)
 
             #get the batch
             batch, labels = self._get_batch(fixed_index_slice)
@@ -527,7 +532,8 @@ class TrainDataBase(DataBase):
         #shuffling
         if self.HP.shuffle is Shuffle.GLOBAL:
             #shuffle the fixed_index array
-            np.random.shuffle(fixed_index)
+            generator = np.random.default_rng(seed=self.seed)
+            generator.shuffle(fixed_index)
 
         return flat_data, labels, fixed_index
 
