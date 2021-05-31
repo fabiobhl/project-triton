@@ -316,12 +316,13 @@ class TrainDataBase(DataBase):
         -test_percentage[float]:        What percentage of your dataset should be used as tests
         -device[torch.device]:          The device you want your data on, if set to None then the device gets autodetected (utilises cuda if it is available)
     """
-    def __init__(self, path, DHP, scaler=None, device=None):
+    def __init__(self, path, DHP, scaler=None, device=None, seed=None):
         #calling the inheritance
         super().__init__(path)
 
         #safe the variables
         self.DHP = DHP
+        self.seed = seed
 
         #auto detection for device
         if device == None:
@@ -368,7 +369,8 @@ class TrainDataBase(DataBase):
             
             #shuffle locally
             if self.DHP["shuffle"] == "local":
-                np.random.shuffle(fixed_index_slice)
+                generator = np.random.default_rng(seed=self.seed)
+                generator.shuffle(fixed_index_slice)
 
             #get the batch
             batch, labels = self._get_batch(fixed_index_slice)
@@ -399,7 +401,8 @@ class TrainDataBase(DataBase):
 
             #shuffle locally
             if self.DHP["shuffle"] == "local":
-                np.random.shuffle(fixed_index_slice)
+                generator = np.random.default_rng(seed=self.seed)
+                generator.shuffle(fixed_index_slice)
 
             #get the batch
             batch, labels = self._get_batch(fixed_index_slice)
@@ -454,7 +457,8 @@ class TrainDataBase(DataBase):
             #fit the data
             scaler.transform(data)
         else:
-            raise Exception("Your chosen scaling method does not exist")
+            pass
+            #raise Exception("Your chosen scaling method does not exist")
         
         return data, scaler
 
@@ -514,7 +518,8 @@ class TrainDataBase(DataBase):
         #shuffling
         if self.DHP["shuffle"] == "global":
             #shuffle the fixed_index array
-            np.random.shuffle(fixed_index)
+            generator = np.random.default_rng(seed=self.seed)
+            generator.shuffle(fixed_index)
 
         return flat_data, labels, fixed_index
 

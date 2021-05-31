@@ -401,7 +401,7 @@ class Experiment():
         self.run_count += 1
 
         #create traindatabase
-        tdb = TrainDataBase(path=self.train_database_path, DHP=run, device=self.device)
+        tdb = TrainDataBase(path=self.train_database_path, DHP=run, device=self.device, seed=self.torch_seed)
 
         #create the pa
         pa = PerformanceAnalytics(path=self.performanceanalytics_database_path, DHP=run, scaler=tdb.scaler, device=self.device)
@@ -580,34 +580,34 @@ if __name__ == "__main__":
     }
 
     MHP_space2 = {
-        "hidden_size": [10],
+        "hidden_size": [3],
         "num_layers": [2],
         "lr": [0.01],
-        "epochs": [5]
+        "epochs": [3]
     }
 
     DHP_space2 = {
-        "candlestick_interval": ["5m"],
-        "derived": [True],
+        "candlestick_interval": ["15m"],
+        "derived": [True, False],
         "features": [["close", "open", "high", "low", "volume", "trend_macd", "trend_ema_slow", "trend_adx", "momentum_rsi", "momentum_kama"]],
-        "batch_size": [100],
-        "window_size": [100],
+        "batch_size": [50],
+        "window_size": [200],
         "labeling_method": ["test"],
-        "scaling_method": ["global"],
+        "scaling_method": ["global", None],
         "test_percentage": [0.2],
-        "balancing_method": [None],
-        "shuffle": [None]
+        "balancing_method": ["criterion_weights", "oversampling", None],
+        "shuffle": ["global", "local", None]
     }
 
     exp = Experiment(path="./experiments",
-                     MHP_space=MHP_space,
-                     DHP_space=DHP_space,
-                     train_database_path="./databases/eth",
+                     MHP_space=MHP_space2,
+                     DHP_space=DHP_space2,
+                     train_database_path="./databases/ethtest",
                      performanceanalytics_database_path="./databases/ethtest",
                      network=Network,
                      device=None,
-                     identifier="test5m",
-                     torch_seed=None,
+                     identifier="testold",
+                     torch_seed=1,
                      checkpointing=True)
     
     exp.start()
