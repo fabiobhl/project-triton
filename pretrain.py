@@ -5,6 +5,8 @@ import os
 import json
 import itertools
 import gc
+from torch import optim
+from torch.nn.modules import dropout
 
 #external libraries
 from tqdm import tqdm
@@ -22,7 +24,7 @@ from torch.utils.tensorboard import SummaryWriter
 #file imports
 from database import TrainDataBase, dbid
 from performance_analytics import PerformanceAnalytics
-from hyperparameters import HyperParameters, CandlestickInterval, Derivation, Scaling, Balancing, Shuffle
+from hyperparameters import HyperParameters, CandlestickInterval, Derivation, Scaling, Balancing, Shuffle, Activation, Optimizer
 
 
 #definition of the network
@@ -71,30 +73,41 @@ class NetworkStateful(nn.Module):
 
 class Network(nn.Module):
 
-    def __init__(self, HP):
+    def __init__(self, HP, device):
         super(Network, self).__init__()
 
         #save values
         self.feature_size = len(HP.features)
         self.hidden_size = HP.hidden_size
         self.num_layers = HP.num_layers
+        self.dropout = HP.dropout
+
+        #save the device
+        self.device = device
 
         #create the lstm layer
-        self.lstm1 = nn.LSTM(input_size=self.feature_size, hidden_size=self.hidden_size, batch_first=True, num_layers=self.num_layers)
+        self.lstm1 = nn.LSTM(input_size=self.feature_size, hidden_size=self.hidden_size, batch_first=True, num_layers=self.num_layers, dropout=self.dropout)
 
-        #create the relu
-        self.activation = nn.Tanh()
+        #create the activation
+        if HP.activation is Activation.TANH:
+            self.activation = nn.Tanh()
+        elif HP.activation is Activation.RELU:
+            self.activation = nn.ReLU()
 
         #create the linear layers
         self.linear = nn.Linear(self.hidden_size, 3)
 
+        #get double precision
         self.double()
+
+        #move to device
+        self.to(self.device)
 
     def forward(self, x):
         #lstm1 layer
         x, _ = self.lstm1(x, self._init_hidden_states(x.shape[0]))
 
-        #relu
+        #activation
         x = self.activation(x)
 
         #linear layers
@@ -106,8 +119,10 @@ class Network(nn.Module):
 
     def _init_hidden_states(self, batch_size):
         #create the intial states
-        h_0 = torch.rand(self.num_layers, batch_size, self.hidden_size, dtype=torch.double)
-        c_0 = torch.rand(self.num_layers, batch_size, self.hidden_size, dtype=torch.double)
+        h_0 = torch.rand(self.num_layers, batch_size, self.hidden_size, dtype=torch.double, device=self.device)
+        c_0 = torch.rand(self.num_layers, batch_size, self.hidden_size, dtype=torch.double, device=self.device)
+
+        return h_0, c_0
 
 class RunManager():
     """
@@ -142,6 +157,7 @@ class RunManager():
         #create the tb for the run and save the graph of the network
         run_dict = dataclasses.asdict(run)
         del run_dict["features"]
+        del run_dict["epochs"]
         run_string = json.dumps(run_dict).replace('"', "").replace(":", "=").replace(" ", "")
         directory = f"{self.path}/Run{self.run_count}{run_string}"
         self.tb = SummaryWriter(log_dir=directory)
@@ -406,11 +422,13 @@ class Experiment():
         pa = PerformanceAnalytics(path=self.performanceanalytics_database_path, HP=run, scaler=tdb.scaler, device=self.device)
 
         #create network
-        model = self.network(HP=run)
-        model.to(self.device)
+        model = self.network(HP=run, device=self.device)
 
         #create the optimizer
-        optimizer = torch.optim.Adam(model.parameters(), lr=run.lr)
+        if run.optimizer is Optimizer.ADAM:
+            optimizer = torch.optim.Adam(model.parameters(), lr=run.lr)
+        elif run.optimizer is Optimizer.SGD:
+            optimizer = torch.optim.SGD(model.parameters(), lr=run.lr)
 
         #create the criterion (Loss Calculator)
         if run.balancing is Balancing.CRITERION_WEIGHTS:
@@ -535,30 +553,33 @@ class Experiment():
 
 if __name__ == "__main__":
     HP_space = {
-        "hidden_size": [3],
+        "hidden_size": [128],
         "num_layers": [2],
-        "lr": [0.01],
-        "epochs": [3],
+        "lr": [0.001],
+        "epochs": [20],
+        "dropout": [0.2],
         "candlestick_interval": [CandlestickInterval.M15],
-        "derivation": [Derivation.TRUE, Derivation.FALSE],
+        "derivation": [Derivation.TRUE],
         "features": [["close", "open", "high", "low", "volume", "trend_macd", "trend_ema_slow", "trend_adx", "momentum_rsi", "momentum_kama"]],
-        "batch_size": [50],
-        "window_size": [200],
-        "labeling": ["test"],
-        "scaling": [Scaling.GLOBAL, Scaling.NONE],
+        "batch_size": [100],
+        "window_size": [300],
+        "labeling": ["test2"],
+        "scaling": [Scaling.GLOBAL],
         "test_percentage": [0.2],
-        "balancing": [Balancing.CRITERION_WEIGHTS, Balancing.OVERSAMPLING, Balancing.NONE],
-        "shuffle": [Shuffle.GLOBAL, Shuffle.LOCAL, Shuffle.NONE]
+        "balancing": [Balancing.OVERSAMPLING],
+        "shuffle": [Shuffle.GLOBAL],
+        "activation": [Activation.RELU],
+        "optimizer": [Optimizer.ADAM]
     }
 
     exp = Experiment(path="./experiments",
                      HP_space=HP_space,
-                     train_database_path="./databases/ethtest",
+                     train_database_path="./databases/eth",
                      performanceanalytics_database_path="./databases/ethtest",
                      network=Network,
                      device=None,
-                     identifier="testnew",
-                     torch_seed=1,
+                     identifier="test",
+                     torch_seed=None,
                      checkpointing=True)
     
     exp.start()

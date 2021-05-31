@@ -40,6 +40,16 @@ class Shuffle(str, Enum):
     LOCAL = "local"
     NONE = "none"
 
+@unique
+class Activation(str, Enum):
+    TANH = "tanh"
+    RELU = "relu"
+
+@unique
+class Optimizer(str, Enum):
+    ADAM = "adam"
+    SGD = "sgd"
+
 
 @dataclass(frozen=True)
 class HyperParameters:
@@ -48,6 +58,7 @@ class HyperParameters:
     num_layers: int
     lr: float
     epochs: int
+    dropout: float
 
     #data hyperparameters
     candlestick_interval: CandlestickInterval
@@ -60,6 +71,8 @@ class HyperParameters:
     test_percentage: float
     balancing: Balancing
     shuffle: Shuffle
+    activation: Activation
+    optimizer: Optimizer
 
     def __post_init__(self):
         #enforce datatypes
