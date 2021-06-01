@@ -24,7 +24,7 @@ from torch.utils.tensorboard import SummaryWriter
 #file imports
 from database import TrainDataBase, dbid
 from performance_analytics import PerformanceAnalytics
-from hyperparameters import HyperParameters, CandlestickInterval, Derivation, Scaling, Balancing, Shuffle, Activation, Optimizer
+from hyperparameters import HyperParameters, CandlestickInterval, Derivation, ScalerType, Scaling, Balancing, Shuffle, Activation, Optimizer
 
 
 #definition of the network
@@ -158,6 +158,7 @@ class RunManager():
         run_dict = dataclasses.asdict(run)
         del run_dict["features"]
         del run_dict["epochs"]
+        del run_dict["test_percentage"]
         run_string = json.dumps(run_dict).replace('"', "").replace(":", "=").replace(" ", "")
         directory = f"{self.path}/Run{self.run_count}{run_string}"
         self.tb = SummaryWriter(log_dir=directory)
@@ -619,18 +620,19 @@ class Experiment():
 
 if __name__ == "__main__":
     HP_space = {
-        "hidden_size": [128],
-        "num_layers": [2],
+        "hidden_size": [5],
+        "num_layers": [1],
         "lr": [0.001],
-        "epochs": [20],
-        "dropout": [0.2],
+        "epochs": [5],
+        "dropout": [0.0],
         "candlestick_interval": [CandlestickInterval.M15],
         "derivation": [Derivation.TRUE],
-        "features": [["close", "open", "high", "low", "volume", "trend_macd", "trend_ema_slow", "trend_adx", "momentum_rsi", "momentum_kama"]],
+        "features": [["close", "open", "high", "low", "volume"]],
         "batch_size": [100],
-        "window_size": [300],
+        "window_size": [100],
         "labeling": ["test2"],
         "scaling": [Scaling.GLOBAL],
+        "scaler_type": [ScalerType.MAXABS, ScalerType.STANDARD],
         "test_percentage": [0.2],
         "balancing": [Balancing.OVERSAMPLING],
         "shuffle": [Shuffle.GLOBAL],
@@ -640,11 +642,11 @@ if __name__ == "__main__":
 
     exp = Experiment(path="./experiments",
                      HP_space=HP_space,
-                     train_database_path="./databases/eth",
+                     train_database_path="./databases/ethtest",
                      performanceanalytics_database_path="./databases/ethtest",
                      network=Network,
                      device=None,
-                     identifier="test",
+                     identifier="unittest",
                      torch_seed=None,
                      checkpointing=True)
     

@@ -29,6 +29,11 @@ class Scaling(str, Enum):
     NONE = "none"
 
 @unique
+class ScalerType(str, Enum):
+    MAXABS = "maxabs"
+    STANDARD = "standard"
+
+@unique
 class Balancing(str, Enum):
     CRITERION_WEIGHTS = "criterion_weights"
     OVERSAMPLING = "oversampling"
@@ -68,6 +73,7 @@ class HyperParameters:
     window_size: int
     labeling: str
     scaling: Scaling
+    scaler_type: ScalerType
     test_percentage: float
     balancing: Balancing
     shuffle: Shuffle
@@ -120,6 +126,7 @@ if __name__ == "__main__":
         num_layers=4,
         lr=1e-4,
         epochs=50,
+        dropout=0.2,
         candlestick_interval=CandlestickInterval.M5,
         features=["close", "open", "high", "low", "volume"],
         derivation=Derivation.TRUE,
@@ -127,7 +134,10 @@ if __name__ == "__main__":
         window_size=400,
         labeling="test",
         scaling=Scaling.GLOBAL,
+        scaler_type=ScalerType.STANDARD,
         test_percentage=0.2,
         balancing=Balancing.OVERSAMPLING,
-        shuffle=Shuffle.GLOBAL
+        shuffle=Shuffle.GLOBAL,
+        activation=Activation.RELU,
+        optimizer=Optimizer.ADAM
     )

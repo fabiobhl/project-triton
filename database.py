@@ -18,7 +18,7 @@ import torch
 
 #external methods
 from utils import read_config, read_json
-from hyperparameters import HyperParameters, CandlestickInterval, Derivation, Scaling, Balancing, Shuffle
+from hyperparameters import HyperParameters, CandlestickInterval, Derivation, Scaling, Balancing, Shuffle, ScalerType
 
 class dbid():
     """
@@ -351,7 +351,7 @@ class TrainDataBase(DataBase):
         if scaler is not None and type(scaler) == str:
             #load in the scaler
             self.scaler = joblib.load(filename=scaler)
-        elif scaler is not None and isinstance(scaler, preprocessing.MaxAbsScaler):
+        elif scaler is not None:
             self.scaler = scaler
         else:
             self.scaler = None
@@ -430,7 +430,7 @@ class TrainDataBase(DataBase):
             yield torch.tensor(batch, device=self.device), torch.tensor(labels, dtype=torch.long, device=self.device).squeeze()
 
     @staticmethod
-    def _raw_data_prep(data, derive, scaling_method, preloaded_scaler=None):
+    def _raw_data_prep(data, derive, scaling_method, scaler_type, preloaded_scaler=None):
         
         def derive_data(data):
             """
@@ -466,7 +466,10 @@ class TrainDataBase(DataBase):
                 scaler.copy = False
             else:
                 #create the scaler
-                scaler = preprocessing.MaxAbsScaler(copy=False)
+                if scaler_type is ScalerType.MAXABS:
+                    scaler = preprocessing.MaxAbsScaler(copy=False)
+                elif scaler_type is ScalerType.STANDARD:
+                    scaler = preprocessing.StandardScaler(copy=False)
 
                 #fit scaler to data
                 scaler.fit(data)
@@ -492,7 +495,7 @@ class TrainDataBase(DataBase):
         data = self[self.HP.candlestick_interval, self.HP.features]
 
         #data operations that can be made on the whole dataset
-        data, scaler = self._raw_data_prep(data=data, derive=self.HP.derivation, scaling_method=self.HP.scaling, preloaded_scaler=self.scaler)
+        data, scaler = self._raw_data_prep(data=data, derive=self.HP.derivation, scaling_method=self.HP.scaling, scaler_type=self.HP.scaler_type, preloaded_scaler=self.scaler)
 
         #remove first row from labels (because of derivation)
         labels = labels.iloc[1:,:]
