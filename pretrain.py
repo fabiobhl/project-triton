@@ -400,7 +400,7 @@ class Experiment():
         runs = []
         values = self.HP_space.values()
         for combination in itertools.product(*values):
-            comb_dict = dict(zip(HP_space.keys(), combination))
+            comb_dict = dict(zip(self.HP_space.keys(), combination))
             run = HyperParameters(**comb_dict)
             runs.append(run)
 
