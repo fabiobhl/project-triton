@@ -5,6 +5,8 @@ import os
 import json
 import itertools
 import gc
+import pathlib
+import re
 
 #external libraries
 from tqdm import tqdm
@@ -301,6 +303,16 @@ class RunManager():
     @torch.no_grad()
     def _get_num_correct(self, preds, labels):
         return preds.argmax(dim=1).eq(labels).sum().item()
+    
+    def checkpoint(self):
+        return {"epoch": self.epoch_count,
+                "best_test_accuracy": self.run_best_test_accuracy,
+                "best_specific_profit_stability": self.run_best_specific_profit_stability}
+
+    def load_checkpoint(self, checkpoint):
+        self.epoch_count = checkpoint["epoch"]
+        self.run_best_test_accuracy = checkpoint["best_test_accuracy"]
+        self.run_best_specific_profit_stability = checkpoint["best_specific_profit_stability"]
 
 class Experiment():
 
@@ -378,9 +390,11 @@ class Experiment():
         #train data dbid
         dbid_info = dbid(train_database_path)
         self.info["train_data"] = dbid_info.dbid
+        self.info["train_database_path"] = train_database_path
         #performance ana data dbid
         dbid_info = dbid(performanceanalytics_database_path)
         self.info["test_data"] = dbid_info.dbid
+        self.info["performanceanalytics_database_path"] = performanceanalytics_database_path
 
         #dump the info dict
         with open(f"{self.path}/info.json", "w") as info:
@@ -406,22 +420,20 @@ class Experiment():
 
         return runs
 
-    def conduct_run(self, run):
+    @staticmethod
+    def conduct_run(run, experiment_path, train_database_path, performanceanalytics_database_path, network, checkpointing, device, torch_seed, run_count, checkpoint_path=None, checkpoint_epochs=10):
         """
         Preparation
         """
-        #update run_count
-        self.run_count += 1
-
         #create traindatabase
-        tdb = TrainDataBase(path=self.train_database_path, HP=run, device=self.device, seed=self.torch_seed)
+        tdb = TrainDataBase(path=train_database_path, HP=run, device=device, seed=torch_seed)
 
         #create the pa
-        pa = PerformanceAnalytics(path=self.performanceanalytics_database_path, HP=run, scaler=tdb.scaler, device=self.device)
+        pa = PerformanceAnalytics(path=performanceanalytics_database_path, HP=run, scaler=tdb.scaler, device=device)
 
         #create network
-        model = self.network(HP=run, device=self.device)
-
+        model = network(HP=run, device=device)
+        
         #create the optimizer
         if run.optimizer is Optimizer.ADAM:
             optimizer = torch.optim.Adam(model.parameters(), lr=run.lr)
@@ -437,19 +449,32 @@ class Experiment():
             weights = weights / weights.sum()
 
             #create the the criterion
-            criterion = nn.CrossEntropyLoss(weight=weights.to(self.device))
+            criterion = nn.CrossEntropyLoss(weight=weights.to(device))
         else:
             criterion = nn.CrossEntropyLoss()
 
         #create the runmanager and start the run
         example_data = next(tdb.train())[0].data
-        runman = RunManager(path=self.path, run=run, model=model, example_data=example_data, run_count=self.run_count)
+        runman = RunManager(path=experiment_path, run=run, model=model, example_data=example_data, run_count=run_count)
+
+        #load checkpoint if available
+        if checkpoint_path is not None:
+            checkpoint = torch.load(checkpoint_path)
+            model.load_state_dict(checkpoint["model_state_dict"])
+            optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+            runman.load_checkpoint(checkpoint["runman_checkpoint"])
 
         """
         Epoch Loop
         """
+        #get the epoch range
+        if checkpoint_path is not None:
+            epoch_range = range(runman.epoch_count+1, runman.epoch_count + 1 + checkpoint_epochs)
+        else:
+            epoch_range = range(run.epochs)
+
         #epoch loop
-        for epoch in tqdm(range(run.epochs), leave=True, desc="Epochs", unit="Epoch"):
+        for _ in tqdm(epoch_range, leave=True, desc="Epochs", unit="Epoch"):
             #start the epoch
             runman.begin_epoch()
 
@@ -523,8 +548,13 @@ class Experiment():
             runman.log_testing(num_test_samples=number, performance_data=performance)
 
             #checkpointing
-            if self.checkpointing:
-                torch.save(model.state_dict(), f"{runman.log_directory}/Epoch{epoch}")
+            if checkpointing:
+                torch.save({
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "runman_checkpoint": runman.checkpoint() 
+                    }, 
+                    f"{runman.log_directory}/checkpoint_epoch{runman.epoch_count}")
 
         """
         Logging
@@ -543,19 +573,49 @@ class Experiment():
         for index, run in enumerate(self.runs):
             print(f"Running: {index+1}/{self.runs_amount}", run)
             
-            self.conduct_run(run=run)
+            #update the runcount
+            self.run_count += 1
 
+            #conduct the run
+            self.conduct_run(run=run,
+                             experiment_path=self.path,
+                             train_database_path=self.train_database_path,
+                             performanceanalytics_database_path=self.performanceanalytics_database_path,
+                             network=self.network,
+                             checkpointing=self.checkpointing,
+                             device=self.device,
+                             torch_seed=self.torch_seed,
+                             run_count=self.run_count)
+
+            #garbage memory
             gc.collect()
             
             print("-"*100)
 
     @staticmethod
-    def continue_run(path):
-        #load in the hyperparameters
-        hp = HyperParameters.load(f"{path}/hyperparameters.json")
+    def continue_run(path, network, device, epochs):
+        run_count = int(re.search('Run(\d+)', path).group(1))
+        path = pathlib.Path(path)
+        experiment_path = path.parent.parent.as_posix()
 
-        #create the tensorboard
-        tb = SummaryWriter(path)
+        #load in the hyperparameters
+        hp = HyperParameters.load(f"{path.parent.as_posix()}/hyperparameters.json")
+        #load in the info dict
+        with open(f"{experiment_path}/info.json", "r") as json_file:
+            info = json.load(json_file)
+
+        #continue the run
+        Experiment.conduct_run(run=hp,
+                               experiment_path=experiment_path,
+                               train_database_path=info["train_database_path"],
+                               performanceanalytics_database_path=info["performanceanalytics_database_path"],
+                               network=network,
+                               checkpointing=True,
+                               device=device,
+                               torch_seed=info["torch_seed"],
+                               run_count=run_count,
+                               checkpoint_path=path.as_posix(),
+                               checkpoint_epochs=epochs)
 
 if __name__ == "__main__":
     HP_space = {
