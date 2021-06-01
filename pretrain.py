@@ -400,27 +400,26 @@ class Experiment():
         runs = []
         values = self.HP_space.values()
         for combination in itertools.product(*values):
-            comb_dict = dict(zip(HP_space.keys(), combination))
+            comb_dict = dict(zip(self.HP_space.keys(), combination))
             run = HyperParameters(**comb_dict)
             runs.append(run)
 
         return runs
 
-    def conduct_run(self, run):
+    @staticmethod
+    def conduct_run(run, experiment_path, train_database_path, performanceanalytics_database_path, network, checkpointing, device, torch_seed, run_count):
         """
         Preparation
         """
-        #update run_count
-        self.run_count += 1
 
         #create traindatabase
-        tdb = TrainDataBase(path=self.train_database_path, HP=run, device=self.device, seed=self.torch_seed)
+        tdb = TrainDataBase(path=train_database_path, HP=run, device=device, seed=torch_seed)
 
         #create the pa
-        pa = PerformanceAnalytics(path=self.performanceanalytics_database_path, HP=run, scaler=tdb.scaler, device=self.device)
+        pa = PerformanceAnalytics(path=performanceanalytics_database_path, HP=run, scaler=tdb.scaler, device=device)
 
         #create network
-        model = self.network(HP=run, device=self.device)
+        model = network(HP=run, device=device)
 
         #create the optimizer
         if run.optimizer is Optimizer.ADAM:
@@ -437,13 +436,13 @@ class Experiment():
             weights = weights / weights.sum()
 
             #create the the criterion
-            criterion = nn.CrossEntropyLoss(weight=weights.to(self.device))
+            criterion = nn.CrossEntropyLoss(weight=weights.to(device))
         else:
             criterion = nn.CrossEntropyLoss()
 
         #create the runmanager and start the run
         example_data = next(tdb.train())[0].data
-        runman = RunManager(path=self.path, run=run, model=model, example_data=example_data, run_count=self.run_count)
+        runman = RunManager(path=experiment_path, run=run, model=model, example_data=example_data, run_count=run_count)
 
         """
         Epoch Loop
@@ -523,7 +522,7 @@ class Experiment():
             runman.log_testing(num_test_samples=number, performance_data=performance)
 
             #checkpointing
-            if self.checkpointing:
+            if checkpointing:
                 torch.save(model.state_dict(), f"{runman.log_directory}/Epoch{epoch}")
 
         """
@@ -543,8 +542,21 @@ class Experiment():
         for index, run in enumerate(self.runs):
             print(f"Running: {index+1}/{self.runs_amount}", run)
             
-            self.conduct_run(run=run)
+            #update the runcount
+            self.run_count += 1
 
+            #conduct the run
+            self.conduct_run(run=run,
+                             experiment_path=self.path,
+                             train_database_path=self.train_database_path,
+                             performanceanalytics_database_path=self.performanceanalytics_database_path,
+                             network=self.network,
+                             checkpointing=self.checkpointing,
+                             device=self.device,
+                             torch_seed=self.torch_seed,
+                             run_count=self.run_count)
+
+            #garbage memory
             gc.collect()
             
             print("-"*100)
