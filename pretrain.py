@@ -5,8 +5,6 @@ import os
 import json
 import itertools
 import gc
-from torch import optim
-from torch.nn.modules import dropout
 
 #external libraries
 from tqdm import tqdm
@@ -550,6 +548,14 @@ class Experiment():
             gc.collect()
             
             print("-"*100)
+
+    @staticmethod
+    def continue_run(path):
+        #load in the hyperparameters
+        hp = HyperParameters.load(f"{path}/hyperparameters.json")
+
+        #create the tensorboard
+        tb = SummaryWriter(path)
 
 if __name__ == "__main__":
     HP_space = {
