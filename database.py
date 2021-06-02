@@ -629,13 +629,13 @@ class PerformanceAnalyticsDataBase(DataBase):
         data = data[self.HP.features]                                                    
 
         #prep the data (data is now a numpy array)
-        data, _ = TrainDataBase._raw_data_prep(data=data, derive=self.HP.derivation, scaling_method=self.HP.scaling, preloaded_scaler=self.scaler)
+        data, _ = TrainDataBase._raw_data_prep(data=data, derive=self.HP.derivation, scaling_method=self.HP.scaling, preloaded_scaler=self.scaler, scaler_type=self.HP.scaler_type)
 
         #get correct size
-        data = data[-self.HP.window_size:, :]
+        data = data.iloc[-self.HP.window_size:, :]
 
         #convert to pytorch tensor and move to device
-        data = torch.tensor(data, device=device)
+        data = torch.tensor(data.to_numpy(), device=device)
 
         #add the batch dimension
         data = data.unsqueeze(dim=0)

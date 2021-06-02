@@ -34,7 +34,7 @@ class PerformanceAnalytics():
         if scaler is not None and type(scaler) == str:
             #load in the scaler
             self.scaler = joblib.load(filename=scaler)
-        elif scaler is not None and isinstance(scaler, preprocessing.MaxAbsScaler):
+        elif scaler is not None:
             self.scaler = scaler
         else:
             self.scaler = None
@@ -159,16 +159,16 @@ class PerformanceAnalytics():
 
         return return_dict
 
-    def evaluate_model_slow(self, model, additional_window_size=100, trading_fee=0.075):        
+    def evaluate_model_slow(self, model, additional_window_size=100, trading_fee=0.075, device=torch.device("cpu")):        
         #create a padb
-        padb = PerformanceAnalyticsDataBase(database_path=self.path, HP=self.HP, scaler=self.scaler, additional_window_size=additional_window_size)
+        padb = PerformanceAnalyticsDataBase(path=self.path, HP=self.HP, scaler=self.scaler, additional_window_size=additional_window_size)
         
-        #convet tradingfee to dezimal
+        #convert tradingfee to dezimal
         trading_fee_dez = trading_fee/100
 
         #set the model to eval mode
         model.eval()
-        model.to(torch.device("cpu"))
+        model.to(device)
 
         #create a trading frame
         trading_frame = padb[self.HP.candlestick_interval, ["close_time", "close"]].copy()
@@ -194,7 +194,7 @@ class PerformanceAnalytics():
             while padb.update_data():
                 
                 #get the state
-                state = padb.get_state()
+                state = padb.get_state(device=device)
 
                 #get the action
                 pred = model(state)
@@ -273,7 +273,7 @@ class PerformanceAnalytics():
 
     def compare_efficient_slow(self, model):
         result_efficient = self.evaluate_model(model=model)
-        result_slow = self.evaluate_model_slow(model=model)
+        result_slow = self.evaluate_model_slow(model=model, device=torch.device("cuda"))
 
         df_efficient = result_efficient["trading_frame"]
         df_slow = result_slow["trading_frame"]
@@ -286,39 +286,19 @@ class PerformanceAnalytics():
 if __name__ == "__main__":
     from pretrain import Network
     from hyperparameters import CandlestickInterval, Derivation, Scaling
-    
-    HPS = HyperParameters(
-        hidden_size=10,
-        num_layers=4,
-        lr=1e-4,
-        epochs=50,
-        candlestick_interval=CandlestickInterval.M5,
-        features=["close", "open", "volume"],
-        derivation=Derivation.TRUE,
-        batch_size=100,
-        window_size=20,
-        labeling="test",
-        scaling=Scaling.GLOBAL,
-        test_percentage=0.2,
-        balancing=Balancing.OVERSAMPLING,
-        shuffle=Shuffle.GLOBAL
-    )
 
-    pa = PerformanceAnalytics(path="./databases/ethtest", HP=HPS, device="cpu")
+    path = "experiments/test/Run1{hidden_size=10,num_layers=2,lr=0.001,dropout=0.2,candlestick_interval=5m,derivation=true,batch_size=100,window_size=100,labeling=test2,scaling=global,scaler_type=maxabs,balancing=oversampling,shuffle=global,activation=relu,optimizer=adam}"
     
-    model = Network(MHP={
-        "hidden_size": 10,
-        "num_layers": 2,
-        "lr": 0.01,
-        "epochs": 10,
-        "features": ["close", "open", "volume"]
-    })
+    HPS = HyperParameters.load(f"{path}/hyperparameters.json")
+
+    pa = PerformanceAnalytics(path="./databases/ethtest", HP=HPS, device="cpu", scaler=f"{path}/scaler.joblib")
+    
+    model = Network(HP=HPS, device="cpu")
 
     #load in the pretrained weights
-    state_dict = torch.load("./experiments/testeth2/Run1/Epoch1", map_location=torch.device("cpu"))
+    state_dict = torch.load(f"{path}/checkpoint_epoch19", map_location=torch.device("cpu"))
     
     #create the neural network
-    model.load_state_dict(state_dict)
+    model.load_state_dict(state_dict["model_state_dict"])
     
-    
-    result = pa.evaluate_model(model=model)
+    pa.compare_efficient_slow(model=model)
