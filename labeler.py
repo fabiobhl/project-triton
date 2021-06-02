@@ -11,6 +11,7 @@ from plotly.graph_objs import layout
 #file imports
 from database import DataBase
 from labeling_methods import LabelingMethods, labelingmethod
+from hyperparameters import CandlestickInterval
 
 #dash imports
 import dash
@@ -80,6 +81,9 @@ inspection_layout = html.Div(children=[inspection_title, inspection_kline_dropdo
     Input("inspection-kline-dropdown", "value"),
     Input("inspection-label-dropdown", "value")])
 def update_graph(figure, candlestick_interval, label):
+    #convert candlestick_interval into CandlestickInterval
+    candlestick_interval = CandlestickInterval(candlestick_interval)
+    
     #create the figure
     data = db[candlestick_interval, ["close_time", "close"]]
     fig = go.Figure()
@@ -154,6 +158,9 @@ create_layout = html.Div(children=[
     State("min-order", "value"),
     State("max-order", "value")])
 def update_graph(figure, candlestick_interval, labeling_method, n_clicks, window_length, poly_order, min_order, max_order):
+    #convert candlestick_interval into CandlestickInterval
+    candlestick_interval = CandlestickInterval(candlestick_interval)
+    
     #create the figure
     data = db[candlestick_interval, ["close_time", "close"]]
     fig = go.Figure()
@@ -210,6 +217,9 @@ def render_parameters(labeling_method):
     State("min-order", "value"),
     State("max-order", "value")])
 def save_the_labels(n_clicks, name, candlestick_interval, labeling_method, window_length, poly_order, min_order, max_order):
+    #convert candlestick_interval into CandlestickInterval
+    candlestick_interval = CandlestickInterval(candlestick_interval)
+    
     try:
         #calculate the labels
         labeler = getattr(LabelingMethods, labeling_method)

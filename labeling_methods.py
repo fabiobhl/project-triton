@@ -1,11 +1,13 @@
+#python libraries
 import os
 import json
 
+#external libraries
 import numpy as np
-from numpy.lib.polynomial import poly 
 import pandas as pd 
 from scipy import signal
 
+#fileimports
 from database import DataBase
 import utils
 
@@ -18,7 +20,7 @@ def write_labels(database_path, candlestick_interval, label_name, labels, comple
     Utility funtion for setting up the files
     """
 
-    #check if the labels order alredy exists if not create one
+    #check if the labels folder alredy exists if not create one
     if not os.path.isdir(f"{database_path}/{candlestick_interval}/labels"):
         os.mkdir(f"{database_path}/{candlestick_interval}/labels")
 
@@ -122,8 +124,7 @@ class LabelingMethods():
         return labels
 
 
-
-
-    
 if __name__ == "__main__":
-    print(LabelingMethods.smoothing_extrema_labeling(database_path="./databases/eth2", candlestick_interval="15m", write=True, name="test", window_length=11, poly_order=3, min_order=3, max_order=3))
+    from hyperparameters import CandlestickInterval
+
+    #print(LabelingMethods.smoothing_extrema_labeling(database_path="./databases/eth2", candlestick_interval="15m", write=True, name="test", window_length=11, poly_order=3, min_order=3, max_order=3))

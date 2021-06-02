@@ -620,16 +620,16 @@ class Experiment():
 
 if __name__ == "__main__":
     HP_space = {
-        "hidden_size": [5],
-        "num_layers": [1],
+        "hidden_size": [10, 50],
+        "num_layers": [2],
         "lr": [0.001],
-        "epochs": [5],
-        "dropout": [0.0],
-        "candlestick_interval": [CandlestickInterval.M15],
+        "epochs": [20],
+        "dropout": [0.2],
+        "candlestick_interval": [CandlestickInterval.M5],
         "derivation": [Derivation.TRUE],
         "features": [["close", "open", "high", "low", "volume"]],
         "batch_size": [100],
-        "window_size": [100],
+        "window_size": [100, 200],
         "labeling": ["test2"],
         "scaling": [Scaling.GLOBAL],
         "scaler_type": [ScalerType.MAXABS, ScalerType.STANDARD],
@@ -642,11 +642,11 @@ if __name__ == "__main__":
 
     exp = Experiment(path="./experiments",
                      HP_space=HP_space,
-                     train_database_path="./databases/ethtest",
+                     train_database_path="./databases/eth",
                      performanceanalytics_database_path="./databases/ethtest",
                      network=Network,
                      device=None,
-                     identifier="unittest",
+                     identifier="test",
                      torch_seed=None,
                      checkpointing=True)
     
