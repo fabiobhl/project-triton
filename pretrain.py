@@ -25,104 +25,7 @@ from torch.utils.tensorboard import SummaryWriter
 from database import TrainDataBase, dbid
 from performance_analytics import PerformanceAnalytics
 from hyperparameters import HyperParameters, CandlestickInterval, Derivation, ScalerType, Scaling, Balancing, Shuffle, Activation, Optimizer
-
-
-#definition of the network
-class NetworkStateful(nn.Module):
-
-    def __init__(self, MHP):
-        super(NetworkStateful, self).__init__()
-
-        #save values
-        self.feature_size = len(MHP["features"])
-        self.hidden_size = MHP["hidden_size"]
-        self.num_layers = MHP["num_layers"]
-        self.batch_size = MHP["batch_size"]
-
-        #create the lstm layer
-        self.lstm1 = nn.LSTM(input_size=self.feature_size, hidden_size=self.hidden_size, batch_first=True, num_layers=self.num_layers)
-        
-        #create the intial states
-        self.hidden = torch.rand(self.num_layers, self.batch_size, self.hidden_size, dtype=torch.double)
-        self.states = torch.rand(self.num_layers, self.batch_size, self.hidden_size, dtype=torch.double)
-
-        #create the relu
-        self.relu = nn.ReLU()
-
-        #create the linear layers
-        self.linear = nn.Linear(self.hidden_size, 3)
-
-        self.double()
-
-    def forward(self, x):
-        #lstm1 layer
-        x, (hn, cn) = self.lstm1(x, (self.hidden, self.states))
-
-        self.hidden = hn.data
-        self.states = cn.data
-
-        #relu
-        x = self.relu(x)
-
-        #linear layers
-        x = x[:,-1,:]
-
-        x = self.linear(x)
-
-        return x
-
-class Network(nn.Module):
-
-    def __init__(self, HP, device):
-        super(Network, self).__init__()
-
-        #save values
-        self.feature_size = len(HP.features)
-        self.hidden_size = HP.hidden_size
-        self.num_layers = HP.num_layers
-        self.dropout = HP.dropout
-
-        #save the device
-        self.device = device
-
-        #create the lstm layer
-        self.lstm1 = nn.LSTM(input_size=self.feature_size, hidden_size=self.hidden_size, batch_first=True, num_layers=self.num_layers, dropout=self.dropout)
-
-        #create the activation
-        if HP.activation is Activation.TANH:
-            self.activation = nn.Tanh()
-        elif HP.activation is Activation.RELU:
-            self.activation = nn.ReLU()
-
-        #create the linear layers
-        self.linear = nn.Linear(self.hidden_size, 3)
-
-        #get double precision
-        self.double()
-
-        #move to device
-        self.to(self.device)
-
-    def forward(self, x):
-        #lstm1 layer
-        x, _ = self.lstm1(x, self._init_hidden_states(x.shape[0]))
-
-        #activation
-        x = self.activation(x)
-
-        #linear layers
-        x = x[:,-1,:]
-
-        x = self.linear(x)
-
-        return x
-
-    def _init_hidden_states(self, batch_size):
-        #create the intial states
-        h_0 = torch.rand(self.num_layers, batch_size, self.hidden_size, dtype=torch.double, device=self.device)
-        c_0 = torch.rand(self.num_layers, batch_size, self.hidden_size, dtype=torch.double, device=self.device)
-
-        return h_0, c_0
+from architectures import LSTM
 
 class RunManager():
     """
@@ -620,19 +523,19 @@ class Experiment():
 
 if __name__ == "__main__":
     HP_space = {
-        "hidden_size": [10, 50],
+        "hidden_size": [200],
         "num_layers": [2],
         "lr": [0.001],
         "epochs": [20],
         "dropout": [0.2],
-        "candlestick_interval": [CandlestickInterval.M5],
+        "candlestick_interval": [CandlestickInterval.M15],
         "derivation": [Derivation.TRUE],
         "features": [["close", "open", "high", "low", "volume"]],
-        "batch_size": [100],
-        "window_size": [100, 200],
+        "batch_size": [100, 200],
+        "window_size": [100, 250, 500],
         "labeling": ["test2"],
         "scaling": [Scaling.GLOBAL],
-        "scaler_type": [ScalerType.MAXABS, ScalerType.STANDARD],
+        "scaler_type": [ScalerType.STANDARD],
         "test_percentage": [0.2],
         "balancing": [Balancing.OVERSAMPLING],
         "shuffle": [Shuffle.GLOBAL],
@@ -644,9 +547,9 @@ if __name__ == "__main__":
                      HP_space=HP_space,
                      train_database_path="./databases/eth",
                      performanceanalytics_database_path="./databases/ethtest",
-                     network=Network,
+                     network=LSTM,
                      device=None,
-                     identifier="test",
+                     identifier="15m2",
                      torch_seed=None,
                      checkpointing=True)
     
