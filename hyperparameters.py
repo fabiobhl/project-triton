@@ -1,7 +1,7 @@
 import dataclasses
 from enum import Enum, unique
-from dataclasses import dataclass, field, fields
 import json
+
 
 @unique
 class CandlestickInterval(str, Enum):
@@ -55,39 +55,16 @@ class Optimizer(str, Enum):
     ADAM = "adam"
     SGD = "sgd"
 
-
-@dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True)
 class HyperParameters:
-    #model hyperparameters
-    hidden_size: int
-    num_layers: int
-    lr: float
-    epochs: int
-    dropout: float
-
-    #data hyperparameters
-    candlestick_interval: CandlestickInterval
-    features: list[int] = field(repr=False)
-    derivation: Derivation
-    batch_size: int
-    window_size: int
-    labeling: str
-    scaling: Scaling
-    scaler_type: ScalerType
-    test_percentage: float
-    balancing: Balancing
-    shuffle: Shuffle
-    activation: Activation
-    optimizer: Optimizer
-
     def __post_init__(self):
         #enforce datatypes
-        for element in dataclasses.fields(HyperParameters):
+        for element in dataclasses.fields(self):
             name = element.name
             field_type = element.type
-            
-            #skip features
-            if name == "features":
+
+            #skip lists
+            if type(self.__dict__[name]) is list:
                 continue
             
             if not isinstance(self.__dict__[name], field_type):
@@ -118,26 +95,33 @@ class HyperParameters:
 
         return cls(**dic)
 
+
+@dataclasses.dataclass(frozen=True)
+class DataHyperParameters(HyperParameters):
+    candlestick_interval: CandlestickInterval
+    features: list[int] = dataclasses.field(repr=False)
+    derivation: Derivation
+    batch_size: int
+    window_size: int
+    labeling: str
+    scaling: Scaling
+    scaler_type: ScalerType
+    test_percentage: float
+    balancing: Balancing
+    shuffle: Shuffle
+    activation: Activation
+    optimizer: Optimizer
+
+@dataclasses.dataclass(frozen=True)
+class LSTMHyperParameters(DataHyperParameters):
+    hidden_size: int
+    num_layers: int
+    lr: float
+    epochs: int
+    dropout: float
+
+
         
 
 if __name__ == "__main__":
-    HPS = HyperParameters(
-        hidden_size=10,
-        num_layers=4,
-        lr=1e-4,
-        epochs=50,
-        dropout=0.2,
-        candlestick_interval=CandlestickInterval.M5,
-        features=["close", "open", "high", "low", "volume"],
-        derivation=Derivation.TRUE,
-        batch_size=100,
-        window_size=400,
-        labeling="test",
-        scaling=Scaling.GLOBAL,
-        scaler_type=ScalerType.STANDARD,
-        test_percentage=0.2,
-        balancing=Balancing.OVERSAMPLING,
-        shuffle=Shuffle.GLOBAL,
-        activation=Activation.RELU,
-        optimizer=Optimizer.ADAM
-    )
+    pass

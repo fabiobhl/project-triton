@@ -24,7 +24,7 @@ from torch.utils.tensorboard import SummaryWriter
 #file imports
 from database import TrainDataBase, dbid
 from performance_analytics import PerformanceAnalytics
-from hyperparameters import HyperParameters, CandlestickInterval, Derivation, ScalerType, Scaling, Balancing, Shuffle, Activation, Optimizer
+import hyperparameters as hp
 from architectures import LSTM
 
 class RunManager():
@@ -319,7 +319,7 @@ class Experiment():
         values = self.HP_space.values()
         for combination in itertools.product(*values):
             comb_dict = dict(zip(self.HP_space.keys(), combination))
-            run = HyperParameters(**comb_dict)
+            run = self.network.hyperparameter_type(**comb_dict)
             runs.append(run)
 
         return runs
@@ -339,13 +339,13 @@ class Experiment():
         model = network(HP=run, device=device)
         
         #create the optimizer
-        if run.optimizer is Optimizer.ADAM:
+        if run.optimizer is hp.Optimizer.ADAM:
             optimizer = torch.optim.Adam(model.parameters(), lr=run.lr)
-        elif run.optimizer is Optimizer.SGD:
+        elif run.optimizer is hp.Optimizer.SGD:
             optimizer = torch.optim.SGD(model.parameters(), lr=run.lr)
 
         #create the criterion (Loss Calculator)
-        if run.balancing is Balancing.CRITERION_WEIGHTS:
+        if run.balancing is hp.Balancing.CRITERION_WEIGHTS:
             #create the weight tensor
             weights = tdb.get_label_count()
             weights = weights / weights.sum()
@@ -503,13 +503,13 @@ class Experiment():
         experiment_path = path.parent.parent.as_posix()
 
         #load in the hyperparameters
-        hp = HyperParameters.load(f"{path.parent.as_posix()}/hyperparameters.json")
+        HP = hp.HyperParameters.load(f"{path.parent.as_posix()}/hyperparameters.json")
         #load in the info dict
         with open(f"{experiment_path}/info.json", "r") as json_file:
             info = json.load(json_file)
 
         #continue the run
-        Experiment.conduct_run(run=hp,
+        Experiment.conduct_run(run=HP,
                                experiment_path=experiment_path,
                                train_database_path=info["train_database_path"],
                                performanceanalytics_database_path=info["performanceanalytics_database_path"],
@@ -523,24 +523,24 @@ class Experiment():
 
 if __name__ == "__main__":
     HP_space = {
-        "hidden_size": [200],
+        "hidden_size": [3],
         "num_layers": [2],
         "lr": [0.001],
         "epochs": [20],
         "dropout": [0.2],
-        "candlestick_interval": [CandlestickInterval.M15],
-        "derivation": [Derivation.TRUE],
+        "candlestick_interval": [hp.CandlestickInterval.M15],
+        "derivation": [hp.Derivation.TRUE],
         "features": [["close", "open", "high", "low", "volume"]],
-        "batch_size": [100, 200],
-        "window_size": [100, 250, 500],
+        "batch_size": [100],
+        "window_size": [10, 25],
         "labeling": ["test2"],
-        "scaling": [Scaling.GLOBAL],
-        "scaler_type": [ScalerType.STANDARD],
+        "scaling": [hp.Scaling.GLOBAL],
+        "scaler_type": [hp.ScalerType.STANDARD],
         "test_percentage": [0.2],
-        "balancing": [Balancing.OVERSAMPLING],
-        "shuffle": [Shuffle.GLOBAL],
-        "activation": [Activation.RELU],
-        "optimizer": [Optimizer.ADAM]
+        "balancing": [hp.Balancing.OVERSAMPLING],
+        "shuffle": [hp.Shuffle.GLOBAL],
+        "activation": [hp.Activation.RELU],
+        "optimizer": [hp.Optimizer.ADAM]
     }
 
     exp = Experiment(path="./experiments",
@@ -549,7 +549,7 @@ if __name__ == "__main__":
                      performanceanalytics_database_path="./databases/ethtest",
                      network=LSTM,
                      device=None,
-                     identifier="15m2",
+                     identifier="ts",
                      torch_seed=None,
                      checkpointing=True)
     
