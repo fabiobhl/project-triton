@@ -5,6 +5,9 @@ import torch.nn as nn
 #file imports
 import hyperparameters as hp
 
+#external libraries imports
+import numpy as np
+
 class LSTM(nn.Module):
 
     #set the hyperparametertype for this architecture
@@ -72,8 +75,16 @@ class MCNN(nn.Module):
         Implementation of a Multi-Scale Convolutional Neural Network according to "Cui et al." (arXiv: 1603.06995v4)
     """
 
+    #set the hyperparametertype for this architecture
+    hyperparameter_type = hp.MCNNHyperParameters
+
+
     def __init__(self, HP, device=None):
-        super(LSTM, self).__init__()
+        super(MCNN, self).__init__()
+
+        #check if HP is of type LSTMHyperParameters
+        if not isinstance(HP, self.hyperparameter_type):
+            raise Exception("Make sure to pass the correct HyperParameter-Type for your model")
 
         """
         Device Setup
@@ -87,10 +98,56 @@ class MCNN(nn.Module):
         #save the HyperParameters
         self.HP = HP
 
+        #save important variables
+        self.in_channels = len(self.HP.features)
+
+        self.local_convolutions = torch.nn.ModuleList()
+        for _ in range(len(self.HP.downsamplig_rates) + 1):
+            self.local_convolutions.append(torch.nn.Conv1d(in_channels=self.in_channels, out_channels=1, kernel_size=3))
+
         #get double precision
         self.double()
         #move to device
         self.to(self.device)
 
-class TCN(nn.Module):
-    pass
+
+    def forward(self, x):
+        """
+        Transformation Stage
+        """
+        #identity mapping
+        
+
+        """
+        Local Convolution Stage
+        """
+
+        """
+        Full Convolution
+        """
+
+        return x
+    
+
+
+
+if __name__ == "__main__":
+    """
+    conv = torch.nn.Conv1d(in_channels=3, out_channels=1, kernel_size=3, bias=False)
+    maxpool = torch.nn.MaxPool1d(kernel_size=2, stride=1)
+    tens = torch.randn(1, 7, 3)
+    print(tens)
+    tens = tens.permute(0, 2, 1)
+    print(tens)
+    result = conv(tens)
+    print(result)
+    pooled = maxpool(result)
+    print(pooled)
+    """
+    rate=3
+
+    tens = torch.randn(1, 7, 3)
+    tens = tens.permute(0, 2, 1)
+    print(tens)
+
+    print(torch.nn.functional.interpolate(tens, scale_factor=1/rate, recompute_scale_factor=False))

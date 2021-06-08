@@ -120,8 +120,9 @@ class LSTMHyperParameters(DataHyperParameters):
     epochs: int
     dropout: float
 
-
-        
+@dataclasses.dataclass(frozen=True)
+class MCNNHyperParameters(DataHyperParameters):
+        downsamplig_rates: list[int]
 
 if __name__ == "__main__":
     pass
