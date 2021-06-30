@@ -123,6 +123,12 @@ class LSTMHyperParameters(DataHyperParameters):
 @dataclasses.dataclass(frozen=True)
 class MCNNHyperParameters(DataHyperParameters):
         downsamplig_rates: list[int]
+        ma_window_sizes: list[int]
+        local_convolution_size: int
+        pooling_factors: list[int]
+        full_convolution_size: int
+        full_convolution_pooling_size: int
+
 
 if __name__ == "__main__":
     pass
