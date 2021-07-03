@@ -583,23 +583,30 @@ class PerformanceAnalyticsDataBase(DataBase):
         #calling the inheritance
         super().__init__(path)
 
+        #check that HP are hyperparameters
+        if not isinstance(HP, HyperParameters):
+            raise Exception("The passed Hyperparameters for this TrainDataBase were not of instance HyperParameters")
+
         #save variables
         self.path = path
         self.HP = HP
         self.additional_window_size = additional_window_size
         self.iterator = 0
 
+        #load in the dataframe
+        self.complete_data = self[self.HP.candlestick_interval, ["open_time", "open", "high", "low", "close", "volume", "close_time"]]
+
         #defining initial data
-        self.data = self[self.HP.candlestick_interval, ["open_time", "open", "high", "low", "close", "volume", "close_time"]].iloc[self.iterator: self.iterator + self.HP.window_size+additional_window_size,:]
+        self.data = self.complete_data.iloc[self.iterator: self.iterator + self.HP.window_size+additional_window_size,:]
 
         #get the length of the undelying data
-        self.data_length = self[self.HP.candlestick_interval, "close_time"].shape[0]
+        self.data_length = self.complete_data.shape[0]
 
         #save the scaler
         if scaler is not None and type(scaler) == str:
             #load in the scaler
             self.scaler = joblib.load(filename=scaler)
-        elif scaler is not None and isinstance(scaler, preprocessing.MaxAbsScaler):
+        elif scaler is not None:
             self.scaler = scaler
         else:
             raise Exception("Please provide either a scaler location or a scaler instance")
@@ -609,11 +616,11 @@ class PerformanceAnalyticsDataBase(DataBase):
         self.iterator += 1
 
         #check for boundary
-        if self.iterator + self.HP.window_size+100 >= self.data_length:
+        if self.iterator + self.HP.window_size+self.additional_window_size >= self.data_length:
             return False 
 
         #update the data
-        self.data = self[self.HP.candlestick_interval, ["open_time", "open", "high", "low", "close", "volume", "close_time"]].iloc[self.iterator: self.iterator + self.HP.window_size+self.additional_window_size,:].reset_index(drop=True)
+        self.data = self.complete_data.iloc[self.iterator: self.iterator + self.HP.window_size+self.additional_window_size,:].reset_index(drop=True)
 
         return True
     
@@ -813,20 +820,5 @@ class LiveDataBase():
         instance = cls(symbol=symbol, info_path=info_path, config_path=config_path)
         return instance
 
-if __name__ == "__main__":    
-    HPS = HyperParameters(
-        hidden_size=10,
-        num_layers=4,
-        lr=1e-4,
-        epochs=50,
-        candlestick_interval=CandlestickInterval.M5,
-        features=["close", "open", "high", "low", "volume"],
-        derivation=Derivation.TRUE,
-        batch_size=100,
-        window_size=400,
-        labeling="test",
-        scaling=Scaling.GLOBAL,
-        test_percentage=0.2,
-        balancing=Balancing.OVERSAMPLING,
-        shuffle=Shuffle.GLOBAL
-    )
+if __name__ == "__main__":
+    DataBase.create("./databases/ethsmall", symbol="ETHUSDT", date_span=(datetime.date(2021, 6, 5), datetime.date(2021, 6, 10)), candlestick_intervals=[CandlestickInterval.M15])

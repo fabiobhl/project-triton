@@ -24,7 +24,7 @@ import plotly.graph_objects as go
 """
 Variables
 """
-DATABASE_PATH = "./databases/ethtest"
+DATABASE_PATH = "./databases/ethsmall"
 
 
 

@@ -11,11 +11,19 @@ from sklearn import preprocessing
 from tqdm import tqdm
 
 #external files import
-from database import TrainDataBase, PerformanceAnalyticsDataBase
+from database import TrainDataBase, PerformanceAnalyticsDataBase, DataBase
 
 #pytorch imports
 import torch
 
+#dash imports
+import dash
+import dash_html_components as html
+import dash_core_components as dcc
+from dash.dependencies import Input, Output, State
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import dash_daq as daq
 
 class PerformanceAnalytics():
     """
@@ -40,7 +48,7 @@ class PerformanceAnalytics():
             self.scaler = None
             
         #load the database
-        self.tdb = TrainDataBase(path=path, HP=self.HP, device=device, scaler=scaler)
+        self.tdb = TrainDataBase(path=path, HP=self.HP, device=device, scaler=self.scaler)
 
         #get the device
         if device == None:
@@ -49,7 +57,7 @@ class PerformanceAnalytics():
         else:
             self.device = torch.device(device)
 
-    def evaluate_model(self, model, trading_fee=0.075):
+    def evaluate_model(self, model, trading_fee=0.075, stop_loss=False, max_loss=None):
         """
         Setup
         """
@@ -106,6 +114,11 @@ class PerformanceAnalytics():
         trading_frame["bsh"] = bsh
         trading_frame["specific_profit"] = np.nan
         trading_frame["specific_profit_accumulated"] = np.nan
+        trading_frame["max_loss"] = np.nan
+        if stop_loss:
+            print("stop loss got triggered")
+            trading_frame["stop_loss_specific_profit"] = np.nan
+            trading_frame["stop_loss_specific_profit_accumulated"] = np.nan
         
         #reset index
         trading_frame.reset_index(inplace=True, drop=True)
@@ -113,9 +126,10 @@ class PerformanceAnalytics():
         """
         Profit calculation
         """
-        #calculate the profit
         mode = "buy"
+        stop_loss_mode = "buy"
         specific_profit = 0
+        stop_loss_specific_profit = 0
 
         trading_frame["hold"] = trading_frame.loc[trading_frame["bsh"]==0, "close"]
         trading_frame["buy"] = trading_frame.loc[trading_frame["bsh"]==1, "close"]
@@ -128,29 +142,77 @@ class PerformanceAnalytics():
             #get the price
             price = row["close"]
 
-            #do the trading
-            if mode == "buy":
-                if pred == 1:
-                    #save the price
-                    buy_price = price
-                    #change mode
-                    mode = 'sell'
+            #do the normal trading
+            if mode == "buy" and pred == 1:
+                #save the price
+                buy_price = price
 
-            elif mode == "sell":
-                if pred == 2:
+                #reset furthest distance
+                furthest_distance = 0
+                #change mode
+                mode = 'sell'
+
+            elif mode == "sell" and pred == 2:
+                #save the price
+                sell_price = price
+
+                #calculate the profit
+                local_specific_profit = sell_price/buy_price * (1-trading_fee_dez)**2 - 1
+                specific_profit += local_specific_profit
+
+                #add metrics to trading frame
+                trading_frame.loc[index,"specific_profit"] = local_specific_profit
+                trading_frame.loc[index,"specific_profit_accumulated"] = specific_profit
+                trading_frame.loc[index,"max_loss"] = (furthest_distance + buy_price)/buy_price * (1-trading_fee_dez)**2 - 1
+
+                #change mode
+                mode = 'buy'
+
+            else:
+                #update furthest distance
+                if mode == "sell" and price - buy_price < furthest_distance:
+                    furthest_distance = price - buy_price
+            
+            #do the stoploss trading
+            if stop_loss:
+                if stop_loss_mode == "buy" and pred == 1:
                     #save the price
-                    sell_price = price
+                    sl_buy_price = price
+
+                    #change mode
+                    stop_loss_mode = 'sell'
+
+                elif stop_loss_mode == "sell" and pred == 2:
+                    #save the price
+                    sl_sell_price = price
 
                     #calculate the profit
-                    local_specific_profit = sell_price/buy_price * (1-trading_fee_dez)**2 - 1
-                    specific_profit += local_specific_profit
+                    local_specific_profit = sl_sell_price/sl_buy_price * (1-trading_fee_dez)**2 - 1
+                    stop_loss_specific_profit += local_specific_profit
 
                     #add metrics to trading frame
-                    trading_frame.loc[index,"specific_profit"] = local_specific_profit
-                    trading_frame.loc[index,"specific_profit_accumulated"] = specific_profit
+                    trading_frame.loc[index,"stop_loss_specific_profit"] = local_specific_profit
+                    trading_frame.loc[index,"stop_loss_specific_profit_accumulated"] = stop_loss_specific_profit
 
                     #change mode
-                    mode = 'buy'
+                    stop_loss_mode = 'buy'
+
+                elif stop_loss_mode == "sell" and (price/sl_buy_price * (1-trading_fee_dez)**2 - 1) <= max_loss:
+                    #save the price
+                    sl_sell_price = price
+
+                    #calculate the profit
+                    local_specific_profit = sl_sell_price/sl_buy_price * (1-trading_fee_dez)**2 - 1
+                    stop_loss_specific_profit += local_specific_profit
+
+                    #add metrics to trading frame
+                    trading_frame.loc[index,"stop_loss_specific_profit"] = local_specific_profit
+                    trading_frame.loc[index,"stop_loss_specific_profit_accumulated"] = stop_loss_specific_profit
+
+                    #change mode
+                    stop_loss_mode = 'buy'
+            
+
 
         """
         Calculate and save the metrics
@@ -159,9 +221,16 @@ class PerformanceAnalytics():
 
         return return_dict
 
-    def evaluate_model_slow(self, model, additional_window_size=100, trading_fee=0.075, device=torch.device("cpu")):        
+    def evaluate_model_slow(self, model, additional_window_size=100, trading_fee=0.075, device="cpu"):        
         #create a padb
         padb = PerformanceAnalyticsDataBase(path=self.path, HP=self.HP, scaler=self.scaler, additional_window_size=additional_window_size)
+
+        #get the device
+        if device == None:
+            #check if there is a cuda gpu available
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        else:
+            device = torch.device(device)
         
         #convert tradingfee to dezimal
         trading_fee_dez = trading_fee/100
@@ -266,14 +335,19 @@ class PerformanceAnalytics():
         return_dict["interval_info"] = interval_info
 
         #trading_frame
+        #ffill specific profit accumulated
         trading_frame["specific_profit_accumulated_ff"] = trading_frame["specific_profit_accumulated"].ffill()
+        #create max loss positive
+        trading_frame["max_loss_positive"] = np.nan
+        trading_frame.loc[trading_frame["specific_profit"] > 0, "max_loss_positive"] = trading_frame.loc[trading_frame["specific_profit"] > 0, "max_loss"]
+        #add tradingframe to return dict
         return_dict["trading_frame"] = trading_frame
 
         return return_dict
 
     def compare_efficient_slow(self, model):
         result_efficient = self.evaluate_model(model=model)
-        result_slow = self.evaluate_model_slow(model=model, device=torch.device("cuda"))
+        result_slow = self.evaluate_model_slow(model=model)
 
         df_efficient = result_efficient["trading_frame"]
         df_slow = result_slow["trading_frame"]
@@ -282,23 +356,166 @@ class PerformanceAnalytics():
         plt.plot(df_slow["close_time"], df_slow["specific_profit_accumulated_ff"], drawstyle="steps-post", linestyle="--", color="orange")
         plt.show()
 
+def analyze_model(experiment_path, database_path, architecture, checkpoint):
+    """
+    Backend
+    """
+    #get the device
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    #load in the hyperparameters
+    HPS = architecture.hyperparameter_type.load(f"{experiment_path}/hyperparameters.json")
+    #load in the state dict
+    state_dict = torch.load(f"{experiment_path}/checkpoint_epoch{checkpoint}", map_location=device)["model_state_dict"]
+    #load in the scaler
+    scaler = joblib.load(f"{experiment_path}/scaler.joblib")
+    
+    #create the model
+    model = architecture(HP=HPS, device=device)
+    #load in the statedict
+    model.load_state_dict(state_dict)
+
+    #create the pa
+    pa = PerformanceAnalytics(path=database_path, HP=HPS, scaler=scaler, device=device)
+    #get the pa_data
+    pa_data = pa.evaluate_model(model=model)
+    trading_frame = pa_data["trading_frame"]
+
+    """
+    Figure
+    """
+    #create the figure
+    fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0)
+    #set the theme
+    fig.update_layout(template="plotly_dark")
+    fig.update_yaxes(zeroline=True)
+    fig.update_yaxes(zerolinecolor="#723D46")
+    
+    #add the price history
+    fig.add_scattergl(x=trading_frame["close_time"], y=trading_frame["close"], row=1, col=1, name="close price")
+    #add the actions
+    fig.add_scattergl(x=trading_frame["close_time"], y=trading_frame["hold"], mode="markers", marker={"color": "grey"}, row=1, col=1, name="hold")
+    fig.add_scattergl(x=trading_frame["close_time"], y=trading_frame["buy"], mode="markers", marker={"color": "green"}, row=1, col=1, name="buy")
+    fig.add_scattergl(x=trading_frame["close_time"], y=trading_frame["sell"], mode="markers", marker={"color": "red"}, row=1, col=1, name="sell")
+
+    #add the accumulated profit
+    fig.add_scattergl(x=trading_frame["close_time"], y=trading_frame["specific_profit_accumulated_ff"], row=2, col=1, name="specific profit accumulated")
+
+    #add the profit
+    fig.add_scattergl(x=trading_frame["close_time"], y=trading_frame["specific_profit"], mode="lines", connectgaps=True, row=3, col=1, name="specific profit")
+    
+    #add the maxloss
+    trading_frame["max_loss_positive"]
+    fig.add_scattergl(x=trading_frame["close_time"], y=trading_frame["max_loss_positive"], mode="lines", connectgaps=True, row=3, col=1, name="max loss positive")
+
+    
+
+    """
+    App
+    """
+    #create the app
+    app = dash.Dash(__name__)
+
+    #set the layout
+    app.layout = html.Div([
+        dcc.Tabs(id="tabs", value="overview", children=[
+            dcc.Tab(label="Overview", value="overview"),
+            dcc.Tab(label="Empty", value="empty")
+        ]),
+        html.Div(id="content")
+    ])
+
+
+    
+    overview_layout = html.Div([
+        html.Div(id="graph", children=[dcc.Graph(id="overview-graph", figure=fig, config={"scrollZoom": True, "showAxisDragHandles": True})]),
+        html.Div(id="settings", children=[
+            html.Div(id="general", children=[
+                html.H3("General Settings"),
+                dcc.Input(id="trading-fee-input", type="number", value=0.075, placeholder="trading fee")
+            ]),
+            html.Div(id="stop-loss", children=[
+                html.H3("Stop Loss Settings"),
+                daq.BooleanSwitch(id="stop-loss-switch", on=False, color="#9B51E0"),
+                dcc.Input(id='stop-loss-input', type="number", value=-0.2, placeholder="max loss")
+            ]),
+            html.Div(id="update", children=[
+                html.Button(id="update-button")
+            ])
+        ])
+    ])
+
+    #tab renderer
+    @app.callback(
+        Output("content", "children"),
+        Input("tabs", "value"))
+    def render_content(tab):
+        if tab == "overview":
+            return overview_layout
+        elif tab == "empty":
+            return html.H1("This page is empty")
+        else:
+            return html.H1("Something went wrong with your tabs")
+
+    #callback for generating the figure
+    @app.callback(
+        Output("overview-graph", "figure"),
+        [Input("update-button", "n_clicks"),
+         State("trading-fee-input", "value"),
+         State("stop-loss-switch", "on"),
+         State("stop-loss-input", "value")])
+    def update_graph(update_button, trading_fee, stoploss_switch, stoploss_value):
+
+        #get the new data
+        pa_data = pa.evaluate_model(model=model, trading_fee=trading_fee, stop_loss=stoploss_switch, max_loss=stoploss_value)
+        trading_frame = pa_data["trading_frame"]
+
+        #create the figure
+        fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0)
+        #set the theme
+        fig.update_layout(template="plotly_dark")
+        fig.update_yaxes(zeroline=True)
+        fig.update_yaxes(zerolinecolor="#723D46")
+        
+        #add the price history
+        fig.add_scattergl(x=trading_frame["close_time"], y=trading_frame["close"], row=1, col=1, name="close price")
+        #add the actions
+        fig.add_scattergl(x=trading_frame["close_time"], y=trading_frame["hold"], mode="markers", marker={"color": "grey"}, row=1, col=1, name="hold")
+        fig.add_scattergl(x=trading_frame["close_time"], y=trading_frame["buy"], mode="markers", marker={"color": "green"}, row=1, col=1, name="buy")
+        fig.add_scattergl(x=trading_frame["close_time"], y=trading_frame["sell"], mode="markers", marker={"color": "red"}, row=1, col=1, name="sell")
+
+        #add the accumulated profit
+        fig.add_scattergl(x=trading_frame["close_time"], y=trading_frame["specific_profit_accumulated_ff"], row=2, col=1, name="specific profit accumulated")
+
+        #add the profit
+        fig.add_scattergl(x=trading_frame["close_time"], y=trading_frame["specific_profit"], mode="lines", connectgaps=True, row=3, col=1, name="specific profit")
+        
+        #add the maxloss
+        fig.add_scattergl(x=trading_frame["close_time"], y=trading_frame["max_loss_positive"], mode="lines", connectgaps=True, row=3, col=1, name="max loss positive")
+
+        #add stoploss data if activated
+        if stoploss_switch:
+            print("stop loss graph got triggered")
+            #add the accumulated profit
+            fig.add_scattergl(x=trading_frame["close_time"], y=trading_frame["stop_loss_specific_profit_accumulated"].ffill(), row=2, col=1, name="sl specific profit accumulated")
+
+            #add the profit
+            fig.add_scattergl(x=trading_frame["close_time"], y=trading_frame["stop_loss_specific_profit"], mode="lines", connectgaps=True, row=3, col=1, name="sl specific profit")
+
+            #add the maxloss line
+            #fig.add_scattergl(x=trading_frame["close_time"], y=stoploss_value, row=3, col=1, name="stop loss max loss")
+
+
+        return fig
+
+
+
+    app.run_server(debug=True, host="0.0.0.0")
+
 
 if __name__ == "__main__":
-    from pretrain import Network
-    from hyperparameters import CandlestickInterval, Derivation, Scaling
+    from architectures import LSTM
 
-    path = "experiments/test/Run1{hidden_size=10,num_layers=2,lr=0.001,dropout=0.2,candlestick_interval=5m,derivation=true,batch_size=100,window_size=100,labeling=test2,scaling=global,scaler_type=maxabs,balancing=oversampling,shuffle=global,activation=relu,optimizer=adam}"
+    path = "./experiments/15m2/Run1{hidden_size=200,num_layers=2,lr=0.001,dropout=0.2,candlestick_interval=15m,derivation=true,batch_size=100,window_size=100,labeling=test2,scaling=global,scaler_type=standard,balancing=oversampling,shuffle=global,activation=relu,optimizer=adam}"
     
-    HPS = HyperParameters.load(f"{path}/hyperparameters.json")
-
-    pa = PerformanceAnalytics(path="./databases/ethtest", HP=HPS, device="cpu", scaler=f"{path}/scaler.joblib")
-    
-    model = Network(HP=HPS, device="cpu")
-
-    #load in the pretrained weights
-    state_dict = torch.load(f"{path}/checkpoint_epoch19", map_location=torch.device("cpu"))
-    
-    #create the neural network
-    model.load_state_dict(state_dict["model_state_dict"])
-    
-    pa.compare_efficient_slow(model=model)
+    analyze_model(experiment_path=path, database_path="./databases/ethtest", architecture=LSTM, checkpoint=5)
