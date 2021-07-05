@@ -116,7 +116,6 @@ class PerformanceAnalytics():
         trading_frame["specific_profit_accumulated"] = np.nan
         trading_frame["max_loss"] = np.nan
         if stop_loss:
-            print("stop loss got triggered")
             trading_frame["stop_loss_specific_profit"] = np.nan
             trading_frame["stop_loss_specific_profit_accumulated"] = np.nan
         
@@ -425,22 +424,26 @@ def analyze_model(experiment_path, database_path, architecture, checkpoint):
         html.Div(id="content")
     ])
 
-
     
-    overview_layout = html.Div([
-        html.Div(id="graph", children=[dcc.Graph(id="overview-graph", figure=fig, config={"scrollZoom": True, "showAxisDragHandles": True})]),
+    
+    overview_layout = html.Div(id="wrapper", children=[
+        html.Div(id="graph", children=[
+            dcc.Loading(id="loading", children=[
+                dcc.Graph(id="overview-graph", figure=fig, config={"scrollZoom": True, "showAxisDragHandles": True, "responsive": True})
+            ])
+        ]),
         html.Div(id="settings", children=[
-            html.Div(id="general", children=[
+            html.Div(id="general", className="menu-item", children=[
                 html.H3("General Settings"),
                 dcc.Input(id="trading-fee-input", type="number", value=0.075, placeholder="trading fee")
             ]),
-            html.Div(id="stop-loss", children=[
+            html.Div(id="stop-loss", className="menu-item", children=[
                 html.H3("Stop Loss Settings"),
                 daq.BooleanSwitch(id="stop-loss-switch", on=False, color="#9B51E0"),
                 dcc.Input(id='stop-loss-input', type="number", value=-0.2, placeholder="max loss")
             ]),
-            html.Div(id="update", children=[
-                html.Button(id="update-button")
+            html.Div(id="update", className="menu-item", children=[
+                html.Button("refresh", id="update-button")
             ])
         ])
     ])
@@ -495,7 +498,6 @@ def analyze_model(experiment_path, database_path, architecture, checkpoint):
 
         #add stoploss data if activated
         if stoploss_switch:
-            print("stop loss graph got triggered")
             #add the accumulated profit
             fig.add_scattergl(x=trading_frame["close_time"], y=trading_frame["stop_loss_specific_profit_accumulated"].ffill(), row=2, col=1, name="sl specific profit accumulated")
 
@@ -516,6 +518,6 @@ def analyze_model(experiment_path, database_path, architecture, checkpoint):
 if __name__ == "__main__":
     from architectures import LSTM
 
-    path = "./experiments/15m2/Run1{hidden_size=200,num_layers=2,lr=0.001,dropout=0.2,candlestick_interval=15m,derivation=true,batch_size=100,window_size=100,labeling=test2,scaling=global,scaler_type=standard,balancing=oversampling,shuffle=global,activation=relu,optimizer=adam}"
+    path = "./experiments/Run5"
     
     analyze_model(experiment_path=path, database_path="./databases/ethtest", architecture=LSTM, checkpoint=5)
