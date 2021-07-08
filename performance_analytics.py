@@ -518,6 +518,6 @@ def analyze_model(experiment_path, database_path, architecture, checkpoint):
 if __name__ == "__main__":
     from architectures import LSTM
 
-    path = "./experiments/Run5"
+    path = "./experiments/15m/Run5"
     
     analyze_model(experiment_path=path, database_path="./databases/ethtest", architecture=LSTM, checkpoint=5)

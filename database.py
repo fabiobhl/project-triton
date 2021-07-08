@@ -476,6 +476,8 @@ class TrainDataBase(DataBase):
             
             #fit the data
             scaler.transform(data)
+        else:
+            warnings.warn("Attention you are not scaling your data at all!")
         
         return data, scaler
 
