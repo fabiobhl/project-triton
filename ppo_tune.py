@@ -182,32 +182,34 @@ class LSTMModel(TorchModelV2, nn.Module):
         #create the lstm layer
         self.lstm1 = nn.LSTM(input_size=self.feature_size, hidden_size=self.hidden_size, batch_first=True, num_layers=self.num_layers, dropout=self.dropout)
 
+        #create the linear layers
+        self.linear = nn.Linear(self.hidden_size, 3)
+
         #create the activation
         if HP.activation is hp.Activation.TANH:
             self.activation = nn.Tanh()
         elif HP.activation is hp.Activation.RELU:
             self.activation = nn.ReLU()
 
-        #create the linear layers
-        self.linear = nn.Linear(self.hidden_size, 3)
-
-        #create the valuefuntion
-        self.vf = nn.Linear(self.hidden_size, 1)
+        #create the valuefuntion layers
+        self.vf_lstm1 = nn.LSTM(input_size=self.feature_size, hidden_size=self.hidden_size, batch_first=True, num_layers=self.num_layers, dropout=self.dropout)
+        self.vf_linear = nn.Linear(self.hidden_size, 1)
     
     def forward(self, input_dict, state, seq_lens):
         #get the observation
-        x = input_dict["obs"]
+        self.observation = input_dict["obs"]
+
         
         #lstm1 layer
-        x, _ = self.lstm1(x, self._init_hidden_states(x.shape[0]))
+        x, _ = self.lstm1(self.observation, self._init_hidden_states(self.observation.shape[0]))
 
         #activation
         x = self.activation(x)
 
         #linear layers
-        self.state = x[:,-1,:]
+        x = x[:,-1,:]
 
-        x = self.linear(self.state)
+        x = self.linear(x)
 
         return x, []
 
@@ -219,7 +221,18 @@ class LSTMModel(TorchModelV2, nn.Module):
         return h_0, c_0
 
     def value_function(self):
-        return torch.squeeze(self.vf(self.state), dim=1)
+        #lstm1 layer
+        x, _ = self.vf_lstm1(self.observation, self._init_hidden_states(self.observation.shape[0]))
+
+        #activation
+        x = self.activation(x)
+
+        #linear layers
+        x = x[:,-1,:]
+
+        x = self.vf_linear(x)
+
+        return torch.squeeze(x, dim=1)
 
     def import_from_h5(self, h5_file):
         #load in the state dict
@@ -230,62 +243,74 @@ class LSTMModel(TorchModelV2, nn.Module):
 if __name__ == "__main__":
     """
     ToDo:
-        - Full valuefunction
-        - Ray Tune implementation
-        - Hyperparameter Search    
+        - Hyperparameter Search
+        - Softmax at end of network? (probability distribution or not?)
+        - Design different reward functions (exponetial, ...)
+        - Model Based (Have Model predict price actions (pretrain regression network))
     """
-
-    from hyperparameters import LSTMHyperParameters
-    path = "./experiments/15m/Run5"
-    hps = LSTMHyperParameters.load(f"{path}/hyperparameters.json")
-    scaler = joblib.load(filename=f"{path}/scaler.joblib")
-    
+    #get ray started
     ray.init()
 
-    env_config = {
-        "database_path": "./databases/eth",
-        "hyperparameters": hps,
-        "preloaded_scaler": scaler,
-        "episode_length": 700,
-        "trading_fee": 0.075
+    #config for this experiment
+    tune_config = {
+        "trainer_config": {
+            "num_gpus": 0,
+            "num_workers": 0,
+            "framework": "torch",
+            "env": MarketEnvironment,
+            "env_config": {
+                "database_path": "/Users/fabio/Desktop/project-triton/databases/eth",
+                "episode_length": 150,
+                "trading_fee": 0.075
+            },
+            "log_level": "ERROR",
+            "batch_mode": "complete_episodes",
+            "model": {
+                "custom_model": LSTMModel,
+                "custom_model_config": {}
+            }
+        },
+
+        "pretrained_weights": {
+            "path": "/Users/fabio/Desktop/project-triton/experiments/15m/Run5",
+            "epoch": 10
+        },
+
+        "train_iterations": 10
     }
 
-    custom_model_config = {
-        "hyperparameters": hps
-    }
+    #trainable function
+    def train_function(config):
+        #handling pretrained weights
+        pretrained_weights = config["pretrained_weights"]
+        if pretrained_weights is not None:
+            path = pretrained_weights["path"]
+            hps = hp.LSTMHyperParameters.load(f"{path}/hyperparameters.json")
+            scaler = joblib.load(filename=f"{path}/scaler.joblib")
 
-    custom_model = {
-            "custom_model": LSTMModel,
-            "custom_model_config": custom_model_config
-        }
+            #add them to the config
+            config["trainer_config"]["env_config"]["hyperparameters"] = hps
+            config["trainer_config"]["env_config"]["preloaded_scaler"] = scaler
+            config["trainer_config"]["model"]["custom_model_config"]["hyperparameters"] = hps
+        else:
+            raise Exception("You have to specify a pretrained path!")
+        
+        #create the trainer
+        trainer_config = config["trainer_config"]
+        environment = trainer_config["env"]
+        trainer = ppo.PPOTrainer(env=environment, config=trainer_config)
 
-    standard_model = {
-            "post_fcnet_hiddens": [100],
-            "use_lstm": True,
-            "max_seq_len": 200,
-            "lstm_use_prev_action": True,
-            "lstm_use_prev_reward": True,
-        }
+        #import pretrained weights
+        epoch = pretrained_weights["epoch"]
+        trainer.import_model(f"{path}/checkpoint_epoch{epoch}")
 
-    config = {
-        "num_gpus": 0,
-        "num_workers": 0,
-        "framework": "torch",
-        "env": MarketEnvironment,
-        "env_config": env_config,
-        "log_level": "DEBUG",
-        "batch_mode": "complete_episodes",
-        "model": custom_model
-    }
+        #train the model n times
+        n = config["train_iterations"]
+        for _ in range(n): 
+            result = trainer.train()
+            tune.report(result)
 
-    trainer = ppo.PPOTrainer(env=MarketEnvironment, config=config)
-
-    trainer.import_model(f"{path}/checkpoint_epoch10")
-
-    for i in range(20):
-        result = trainer.train()
-        print(pretty_print(result))
-
+    tune.run(run_or_experiment=train_function, config=tune_config, local_dir="./experiments_rl", name="test2")
     
 
     

@@ -5,6 +5,7 @@ __pycache__
 config.json
 /databases/
 /experiments/
+/experiments_rl/
 
 #testfiles
 t.py
