@@ -191,6 +191,8 @@ class LSTMModel(TorchModelV2, nn.Module):
         elif HP.activation is hp.Activation.RELU:
             self.activation = nn.ReLU()
 
+        self.last_activation = nn.Softmax(dim=1)
+
         #create the valuefuntion layers
         self.vf_lstm1 = nn.LSTM(input_size=self.feature_size, hidden_size=self.hidden_size, batch_first=True, num_layers=self.num_layers, dropout=self.dropout)
         self.vf_linear = nn.Linear(self.hidden_size, 1)
@@ -210,6 +212,8 @@ class LSTMModel(TorchModelV2, nn.Module):
         x = x[:,-1,:]
 
         x = self.linear(x)
+
+        x = self.last_activation(x)
 
         return x, []
 
@@ -232,6 +236,8 @@ class LSTMModel(TorchModelV2, nn.Module):
 
         x = self.vf_linear(x)
 
+        x = self.activation(x)
+
         return torch.squeeze(x, dim=1)
 
     def import_from_h5(self, h5_file):
@@ -247,6 +253,7 @@ if __name__ == "__main__":
         - Softmax at end of network? (probability distribution or not?)
         - Design different reward functions (exponetial, ...)
         - Model Based (Have Model predict price actions (pretrain regression network))
+        - Off policy learning from (human trading, or from labeled data)
     """
     #get ray started
     ray.init()
@@ -254,16 +261,16 @@ if __name__ == "__main__":
     #config for this experiment
     tune_config = {
         "trainer_config": {
-            "num_gpus": 0,
-            "num_workers": 0,
+            "num_gpus": 1,
+            "num_workers": 4,
             "framework": "torch",
             "env": MarketEnvironment,
             "env_config": {
                 "database_path": "/Users/fabio/Desktop/project-triton/databases/eth",
-                "episode_length": 150,
+                "episode_length": 700,
                 "trading_fee": 0.075
             },
-            "log_level": "ERROR",
+            "log_level": "DEBUG",
             "batch_mode": "complete_episodes",
             "model": {
                 "custom_model": LSTMModel,
@@ -272,11 +279,11 @@ if __name__ == "__main__":
         },
 
         "pretrained_weights": {
-            "path": "/Users/fabio/Desktop/project-triton/experiments/15m/Run5",
-            "epoch": 10
+            "path": "/Users/fabio/Desktop/project-triton/experiments/15m2/Run1",
+            "epoch": 12
         },
 
-        "train_iterations": 10
+        "train_iterations": 1000
     }
 
     #trainable function
@@ -310,7 +317,7 @@ if __name__ == "__main__":
             result = trainer.train()
             tune.report(result)
 
-    tune.run(run_or_experiment=train_function, config=tune_config, local_dir="./experiments_rl", name="test2")
+    tune.run(run_or_experiment=train_function, config=tune_config, local_dir="./experiments_rl", name="test", resources_per_trial={"gpu": 1})
     
 
     
